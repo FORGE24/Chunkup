@@ -1,36 +1,31 @@
 package cn.sanrolnet.chunkup.client.sodium;
 
+import me.jellysquid.mods.sodium.client.render.chunk.occlusion.GraphDirection;
 import net.minecraft.client.renderer.chunk.VisibilitySet;
 import net.minecraft.core.Direction;
 
 public final class OcclusionBridge {
-	private static final int DIRECTION_COUNT = 6;
-
 	private OcclusionBridge() {
 	}
 
-	public static VisibilitySet[] toVisibilitySets(long[] visibilityData) {
+	/** 0.5.11 使用单个 [ChunkOcclusionData]（Mojang: VisibilitySet）。 */
+	public static VisibilitySet toOcclusionData(long[] visibilityData) {
 		if (visibilityData == null || visibilityData.length == 0) {
 			VisibilitySet fullyVisible = new VisibilitySet();
 			fullyVisible.setAll(true);
-			return new VisibilitySet[] { fullyVisible };
+			return fullyVisible;
 		}
-
-		VisibilitySet[] sets = new VisibilitySet[visibilityData.length];
-		for (int i = 0; i < visibilityData.length; i++) {
-			sets[i] = decode(visibilityData[i]);
-		}
-		return sets;
+		return decode(visibilityData[0]);
 	}
 
 	private static VisibilitySet decode(long visibilityData) {
 		VisibilitySet set = new VisibilitySet();
-		for (int from = 0; from < DIRECTION_COUNT; from++) {
-			Direction fromDir = Direction.from3DDataValue(from);
-			for (int to = 0; to < DIRECTION_COUNT; to++) {
-				int bit = from * 8 + to;
+		for (int from = 0; from < GraphDirection.COUNT; from++) {
+			Direction fromDir = GraphDirection.toEnum(from);
+			for (int to = 0; to < GraphDirection.COUNT; to++) {
+				int bit = (from * 8) + to;
 				if ((visibilityData & (1L << bit)) != 0L) {
-					set.set(fromDir, Direction.from3DDataValue(to), true);
+					set.set(fromDir, GraphDirection.toEnum(to), true);
 				}
 			}
 		}

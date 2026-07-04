@@ -1,5 +1,6 @@
-mod cuda;
 mod cpu;
+mod cuda;
+pub mod gpu_loader;
 mod opencl;
 mod scheduler;
 

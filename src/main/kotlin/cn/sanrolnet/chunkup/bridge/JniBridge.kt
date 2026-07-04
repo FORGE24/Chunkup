@@ -1,6 +1,7 @@
 package cn.sanrolnet.chunkup.bridge
 
 import cn.sanrolnet.chunkup.Chunkup
+import cn.sanrolnet.chunkup.minecraft.generation.ChunkDensityFill
 import cn.sanrolnet.chunkup.render.SectionBuildPayload
 import cn.sanrolnet.chunkup.render.SectionKind
 import org.slf4j.LoggerFactory
@@ -17,11 +18,9 @@ object JniBridge : EngineBridge {
 	private var loaded = false
 
 	init {
-		try {
-			System.loadLibrary("chunkup_core")
-			loaded = true
-		} catch (e: UnsatisfiedLinkError) {
-			LOGGER.warn("Native library chunkup_core not found; engine runs in stub mode", e)
+		loaded = NativeLibraryLoader.loadEngineLibraries()
+		if (!loaded) {
+			LOGGER.warn("Native library chunkup_core not found; engine runs in stub mode")
 		}
 	}
 
@@ -44,6 +43,26 @@ object JniBridge : EngineBridge {
 	): Boolean {
 		if (!loaded) return false
 		return nativeOnChunkGeneration(stage.ordinal, chunkX, chunkZ)
+	}
+
+	override fun generateChunkDensity(
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+	): ChunkDensityFill? {
+		if (!loaded) return null
+		val raw = nativeGenerateChunkDensity(chunkX, chunkZ, minY, height, worldSeed) ?: return null
+		return decodeChunkDensityFill(raw)
+	}
+
+	private fun decodeChunkDensityFill(raw: Any): ChunkDensityFill? {
+		if (raw !is Array<*>) return null
+		if (raw.size < 2) return null
+		val density = raw[0] as? FloatArray ?: return null
+		val fluid = raw[1] as? ByteArray ?: return null
+		return ChunkDensityFill(density, fluid)
 	}
 
 	override fun onSectionBuild(
@@ -79,6 +98,15 @@ object JniBridge : EngineBridge {
 
 	@JvmStatic
 	private external fun nativeOnChunkGeneration(stageOrdinal: Int, chunkX: Int, chunkZ: Int): Boolean
+
+	@JvmStatic
+	private external fun nativeGenerateChunkDensity(
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+	): Any?
 
 	@JvmStatic
 	private external fun nativeOnSectionBuild(

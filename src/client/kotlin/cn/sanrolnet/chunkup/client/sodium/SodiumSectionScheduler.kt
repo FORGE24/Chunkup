@@ -1,9 +1,9 @@
-package cn.sanrolnet.chunkup.client.sodium
+package cn.sanrolnet.chunkup.client.sodium;
 
-import cn.sanrolnet.chunkup.Chunkup
-import cn.sanrolnet.chunkup.render.SectionKey
-import net.caffeinemc.mods.sodium.client.render.SodiumWorldRenderer
-import org.slf4j.LoggerFactory
+import cn.sanrolnet.chunkup.Chunkup;
+import cn.sanrolnet.chunkup.render.SectionKey;
+import me.jellysquid.mods.sodium.client.render.SodiumWorldRenderer;
+import org.slf4j.LoggerFactory;
 
 object SodiumSectionScheduler {
 	private val LOGGER = LoggerFactory.getLogger("${Chunkup.MOD_ID}.client.sodium.scheduler")
@@ -18,10 +18,8 @@ object SodiumSectionScheduler {
 		try {
 			val renderer = SodiumWorldRenderer.instanceNullable() ?: return
 			renderer.scheduleRebuildForChunk(sectionX, sectionY, sectionZ, true)
-		} catch (e: ReflectiveOperationException) {
+		} catch (e: Exception) {
 			LOGGER.debug("Failed to schedule Sodium section rebuild at [{}, {}, {}]", sectionX, sectionY, sectionZ, e)
-		} catch (e: IllegalStateException) {
-			LOGGER.trace("Sodium renderer unavailable for section rebuild", e)
 		}
 	}
 }

@@ -1,15 +1,14 @@
 package cn.sanrolnet.chunkup.client.mixin.sodium;
 
-import cn.sanrolnet.chunkup.client.mixin.sodium.ChunkBuilderTaskAccessor;
 import cn.sanrolnet.chunkup.client.render.SectionBuildCache;
 import cn.sanrolnet.chunkup.client.sodium.SodiumBuildFactory;
 import cn.sanrolnet.chunkup.render.SectionBuildPayload;
 import cn.sanrolnet.chunkup.render.SectionKey;
-import net.caffeinemc.mods.sodium.client.render.chunk.RenderSection;
-import net.caffeinemc.mods.sodium.client.render.chunk.compile.ChunkBuildContext;
-import net.caffeinemc.mods.sodium.client.render.chunk.compile.ChunkBuildOutput;
-import net.caffeinemc.mods.sodium.client.render.chunk.compile.tasks.ChunkBuilderMeshingTask;
-import net.caffeinemc.mods.sodium.client.util.task.CancellationToken;
+import me.jellysquid.mods.sodium.client.render.chunk.RenderSection;
+import me.jellysquid.mods.sodium.client.render.chunk.compile.ChunkBuildContext;
+import me.jellysquid.mods.sodium.client.render.chunk.compile.ChunkBuildOutput;
+import me.jellysquid.mods.sodium.client.render.chunk.compile.tasks.ChunkBuilderMeshingTask;
+import me.jellysquid.mods.sodium.client.util.task.CancellationToken;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;

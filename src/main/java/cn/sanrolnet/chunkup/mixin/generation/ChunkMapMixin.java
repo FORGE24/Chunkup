@@ -33,7 +33,7 @@ public abstract class ChunkMapMixin {
 		ChunkGenerationWorldContext.pop();
 	}
 
-	@Inject(method = "protoChunkToFullChunk", at = @At("TAIL"))
+	@Inject(method = "method_17227", at = @At("RETURN"))
 	private void chunkup$afterGenerated(
 		ChunkHolder holder,
 		ChunkAccess protoChunk,

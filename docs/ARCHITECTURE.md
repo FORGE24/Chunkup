@@ -87,6 +87,27 @@ ChunkGenerationHooks.register { ctx ->
 | `SKYLIGHT` | `1<<1` | 天空光传播 |
 | `BLOCKLIGHT` | `1<<2` | 方块光（占位） |
 | `FACE_CULL` | `1<<3` | 面剔除掩码 |
+| `SECTION_MESH` | `1<<4` | Section 网格（CompactChunkVertex） |
+| `OCCLUSION_PACK` | `1<<5` | Sodium visibility 打包 |
+
+## Sodium 0.5.11 客户端集成
+
+目标包名：`me.jellysquid.mods.sodium`（Modrinth `mc1.20.1-0.5.11`）
+
+```
+ClientChunkEvents → ClientSectionPipeline（距离优先级）
+  → ClientEngineBridge / JNI → Rust section/mesher
+  → SectionBuildCache
+  → ChunkBuilderMeshingTaskMixin（HEAD 短路）
+  → SodiumBuildFactory → ChunkBuildOutput + BuiltSectionInfo
+```
+
+| SectionKind | 行为 |
+|-------------|------|
+| `AIR_ONLY` | 返回 `BuiltSectionInfo.EMPTY`，跳过 mesh |
+| `SOLID_UNIFORM` | 外表面 shell mesh（6 面） |
+| `MIXED` | 逐 block 6-face culling + 简易 AO |
+| `FLUID_HEAVY` | `ready=false`，回退 Sodium CPU mesh |
 
 ```
 ChunkupKernelJob → UnifiedKernel::dispatch (Rust)

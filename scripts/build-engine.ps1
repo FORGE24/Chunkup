@@ -2,7 +2,7 @@ $ErrorActionPreference = "Continue"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $EngineDir = Join-Path $Root "engine"
-$OutDir = Join-Path $Root "build\native"
+$GpuOutDir = Join-Path $Root "build\native-gpu"
 
 function Copy-IfExists($Path, $DestDir) {
     if (Test-Path $Path) {
@@ -100,7 +100,7 @@ function Build-CudaWithNvcc($Root, $OutDir) {
     $hostc = Join-Path $Root "native\common\chunkup_kernel_host.c"
     $incCuda = Join-Path $Root "native\cuda\include"
     $incCommon = Join-Path $Root "native\common"
-    $out = Join-Path $OutDir "chunkup_cuda.dll"
+    $out = Join-Path $GpuOutDir "chunkup_cuda.dll"
 
     $nvccFlags = @("-shared", "-o", "`"$out`"", "`"$cu`"", "`"$hostc`"", "-I`"$incCuda`"", "-I`"$incCommon`"", "--compiler-options", "/utf-8")
     if ($cudaVersion.Major -lt 12) {
@@ -129,7 +129,7 @@ function Build-CudaWithNvcc($Root, $OutDir) {
         return $false
     }
 
-    Write-Host "==> Built chunkup_cuda.dll -> $OutDir"
+    Write-Host "==> Built chunkup_cuda.dll -> $GpuOutDir"
     return $true
 }
 
@@ -164,20 +164,19 @@ try {
     Pop-Location
 }
 
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-Copy-IfExists (Join-Path $EngineDir "target\release\chunkup_core.dll") $OutDir | Out-Null
+New-Item -ItemType Directory -Force -Path $GpuOutDir | Out-Null
 
-# Windows 上跳过 CMake+CUDA（需 VS CUDA 集成）；直接用 nvcc。
+# Rust 核心由 Gradle copyNativeLibraries 从 engine/target/release 复制
 if ($IsWindows -or ($env:OS -match "Windows")) {
-    Build-CudaWithNvcc $Root $OutDir | Out-Null
+    Build-CudaWithNvcc $Root $GpuOutDir | Out-Null
 } elseif (Find-Nvcc) {
     $nvcc = Find-Nvcc
     $useNinja = [bool](Get-Command ninja -ErrorAction SilentlyContinue)
     $cudaArgs = @("-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CUDA_COMPILER=$nvcc")
     if ($useNinja) { $cudaArgs = @("-G", "Ninja") + $cudaArgs }
     if (Invoke-CMakeBuild "CUDA" (Join-Path $Root "native\cuda") (Join-Path $Root "build\cuda") $cudaArgs) {
-        Copy-IfExists (Join-Path $Root "build\cuda\Release\chunkup_cuda.dll") $OutDir | Out-Null
-        Copy-IfExists (Join-Path $Root "build\cuda\chunkup_cuda.dll") $OutDir | Out-Null
+        Copy-IfExists (Join-Path $Root "build\cuda\Release\chunkup_cuda.dll") $GpuOutDir | Out-Null
+        Copy-IfExists (Join-Path $Root "build\cuda\chunkup_cuda.dll") $GpuOutDir | Out-Null
     }
 }
 
@@ -187,12 +186,12 @@ if (Get-Command cmake -ErrorAction SilentlyContinue) {
         $openclArgs = @("-G", "Ninja") + $openclArgs
     }
     if (Invoke-CMakeBuild "OpenCL" (Join-Path $Root "native\opencl") (Join-Path $Root "build\opencl") $openclArgs) {
-        Copy-IfExists (Join-Path $Root "build\opencl\Release\chunkup_opencl.dll") $OutDir | Out-Null
-        Copy-IfExists (Join-Path $Root "build\opencl\chunkup_opencl.dll") $OutDir | Out-Null
+        Copy-IfExists (Join-Path $Root "build\opencl\Release\chunkup_opencl.dll") $GpuOutDir | Out-Null
+        Copy-IfExists (Join-Path $Root "build\opencl\chunkup_opencl.dll") $GpuOutDir | Out-Null
     }
 }
 
-Write-Host "==> Done. Native artifacts in $OutDir"
-Get-ChildItem $OutDir -ErrorAction SilentlyContinue | ForEach-Object {
+Write-Host "==> Done. GPU native artifacts in $GpuOutDir"
+Get-ChildItem $GpuOutDir -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host "    $($_.Name) ($($_.Length) bytes)"
 }

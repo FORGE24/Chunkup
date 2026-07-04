@@ -45,6 +45,7 @@ typedef struct ChunkupKernelJob {
 
 typedef struct ChunkupKernelBuffers {
     float* density;
+    uint8_t* fluid;
     uint8_t* skylight;
     uint8_t* blocklight;
     uint8_t* face_mask;
@@ -61,8 +62,13 @@ uint32_t chunkup_kernel_ops_for_stage(uint32_t stage);
 
 /** 在 host 侧分配/绑定缓冲区的推荐大小（字节） */
 uint32_t chunkup_kernel_density_bytes(uint32_t height);
+uint32_t chunkup_kernel_fluid_bytes(uint32_t height);
 uint32_t chunkup_kernel_light_bytes(uint32_t height);
 uint32_t chunkup_kernel_face_mask_bytes(uint32_t height);
+
+static inline uint32_t chunkup_block_index(int lx, int ly, int lz, uint32_t stride_y) {
+    return (uint32_t)ly * stride_y + (uint32_t)lz * CHUNKUP_CHUNK_SIZE + (uint32_t)lx;
+}
 
 /** 统一入口：按 job.op_mask 顺序执行各 op */
 int chunkup_kernel_dispatch_cpu(

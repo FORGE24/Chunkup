@@ -8,6 +8,7 @@ set(CHUNKUP_COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 add_library(chunkup_opencl SHARED
     src/chunkup_opencl.cpp
     ${CHUNKUP_COMMON_DIR}/chunkup_kernel_host.c
+    ${CHUNKUP_COMMON_DIR}/chunkup_noise_state.c
 )
 
 target_include_directories(chunkup_opencl PUBLIC include)

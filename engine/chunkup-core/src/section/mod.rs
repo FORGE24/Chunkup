@@ -1,7 +1,9 @@
 //! Section mesh generation and occlusion visibility packing.
 
 mod mesh;
+mod mesher;
 mod occlusion;
+mod vertex;
 
 pub use mesh::{build_section_mesh, SectionKind, SectionMeshResult};
 pub use occlusion::pack_occlusion;

@@ -1,3 +1,4 @@
+use crate::backend::gpu_loader;
 use crate::backend::BackendKind;
 
 use super::types::{KernelBuffers, KernelJob, KernelResult};
@@ -21,15 +22,40 @@ impl UnifiedKernel {
         }
 
         let mut workspace = KernelWorkspace::for_job(job);
-        let mut buffers = KernelBuffers::from_workspace(&mut workspace);
+        self.dispatch_with_workspace(job, &mut workspace)
+    }
+
+    pub fn dispatch_with_workspace(
+        &self,
+        job: &KernelJob,
+        workspace: &mut KernelWorkspace,
+    ) -> Result<KernelResult, i32> {
+        if job.op_mask == 0 {
+            return Ok(KernelResult {
+                status: 0,
+                ops_completed: 0,
+            });
+        }
+
+        let mut buffers = KernelBuffers::from_workspace(workspace);
         let mut result = KernelResult::default();
 
         let code = unsafe {
             match self.backend {
-                #[cfg(feature = "cuda")]
-                BackendKind::Cuda => super::types::chunkup_cuda_kernel_dispatch(job, &mut buffers, &mut result),
-                #[cfg(feature = "opencl")]
-                BackendKind::OpenCl => super::types::chunkup_opencl_kernel_dispatch(job, &mut buffers, &mut result),
+                BackendKind::Cuda => {
+                    if let Some(code) = gpu_loader::cuda_dispatch(job, &mut buffers, &mut result) {
+                        code
+                    } else {
+                        super::types::chunkup_kernel_dispatch_cpu(job, &mut buffers, &mut result)
+                    }
+                }
+                BackendKind::OpenCl => {
+                    if let Some(code) = gpu_loader::opencl_dispatch(job, &mut buffers, &mut result) {
+                        code
+                    } else {
+                        super::types::chunkup_kernel_dispatch_cpu(job, &mut buffers, &mut result)
+                    }
+                }
                 _ => super::types::chunkup_kernel_dispatch_cpu(job, &mut buffers, &mut result),
             }
         };

@@ -1,7 +1,7 @@
 package cn.sanrolnet.chunkup.client.mixin.sodium;
 
-import net.caffeinemc.mods.sodium.client.render.chunk.RenderSection;
-import net.caffeinemc.mods.sodium.client.render.chunk.compile.tasks.ChunkBuilderMeshingTask;
+import me.jellysquid.mods.sodium.client.render.chunk.RenderSection;
+import me.jellysquid.mods.sodium.client.render.chunk.compile.tasks.ChunkBuilderMeshingTask;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
@@ -11,5 +11,5 @@ public interface ChunkBuilderTaskAccessor {
 	RenderSection chunkup$getRender();
 
 	@Accessor("buildTime")
-	int chunkup$getSubmitTime();
+	int chunkup$getBuildTime();
 }

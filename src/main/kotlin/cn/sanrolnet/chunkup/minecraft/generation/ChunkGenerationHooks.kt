@@ -44,7 +44,12 @@ object ChunkGenerationHooks {
 	@JvmStatic
 	fun dispatch(context: ChunkGenerationContext) {
 		engine?.onChunkGeneration(context.stage, context.chunkX, context.chunkZ)
+		notify(context)
+	}
 
+	/** 仅通知监听器，不重复调用引擎（密度写回后使用）。 */
+	@JvmStatic
+	fun notify(context: ChunkGenerationContext) {
 		for (listener in listeners) {
 			try {
 				listener.onChunkGeneration(context)

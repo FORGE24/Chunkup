@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 use backend::{BackendKind, EngineContext};
 use kernel::{KernelJob, Stage};
+use kernel::workspace::KernelWorkspace;
 
 static ENGINE: Mutex<Option<EngineContext>> = Mutex::new(None);
 
@@ -74,7 +75,62 @@ pub fn dispatch_chunk_stage(chunk_x: i32, chunk_z: i32, stage_ordinal: i32) -> b
         return true;
     }
 
-    ctx.kernel().dispatch(&job).is_ok()
+    ctx.kernel().dispatch(&job).map(|result| {
+        log::info!(
+            "chunkup generation backend={} stage={:?} chunk=[{}, {}] ops=0x{:x}",
+            ctx.active_backend().name(),
+            stage,
+            chunk_x,
+            chunk_z,
+            result.ops_completed
+        );
+        result
+    }).is_ok()
+}
+
+pub fn generate_chunk_density(
+    chunk_x: i32,
+    chunk_z: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+) -> Option<(Vec<f32>, Vec<u8>)> {
+    if height <= 0 {
+        return None;
+    }
+
+    let seed = mix_world_seed(world_seed);
+    let job = KernelJob::for_density_fill(chunk_x, chunk_z, min_y, height, seed);
+
+    let Ok(slot) = ENGINE.lock() else {
+        return None;
+    };
+    let ctx = slot.as_ref()?;
+
+    let mut workspace = KernelWorkspace::for_job(&job);
+    let expected_len = workspace.density.len();
+    ctx.kernel().dispatch_with_workspace(&job, &mut workspace).ok()?;
+
+    if workspace.density.len() != expected_len || workspace.fluid.len() != expected_len {
+        return None;
+    }
+
+    log::info!(
+        "chunkup density fill backend={} chunk=[{}, {}] min_y={} height={}",
+        ctx.active_backend().name(),
+        chunk_x,
+        chunk_z,
+        min_y,
+        height
+    );
+
+    Some((workspace.density, workspace.fluid))
+}
+
+fn mix_world_seed(world_seed: i64) -> u32 {
+    let lo = world_seed as u32;
+    let hi = (world_seed >> 32) as u32;
+    lo ^ hi.rotate_left(1)
 }
 
 pub fn dispatch_section_build(

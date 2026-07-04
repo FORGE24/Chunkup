@@ -6,7 +6,7 @@ use jni::sys::{jboolean, jbyte, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 use crate::section::{self, SectionMeshResult};
-use crate::{dispatch_chunk_stage, dispatch_section_build, initialize, is_available, shutdown};
+use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, initialize, is_available, shutdown};
 
 static SECTION_BUFFERS: LazyLock<Mutex<HashMap<isize, Vec<u8>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -67,6 +67,54 @@ pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeOnChunkG
     } else {
         JNI_FALSE
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGenerateChunkDensity(
+    mut env: JNIEnv,
+    _class: JClass,
+    chunk_x: i32,
+    chunk_z: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+) -> jni::sys::jobject {
+    let Some((density, fluid)) = generate_chunk_density(chunk_x, chunk_z, min_y, height, world_seed) else {
+        return JObject::null().into_raw();
+    };
+
+    let len = density.len();
+    if len == 0 || fluid.len() != len {
+        return JObject::null().into_raw();
+    }
+
+    let Ok(density_array) = env.new_float_array(len as i32) else {
+        return JObject::null().into_raw();
+    };
+    if env.set_float_array_region(&density_array, 0, &density).is_err() {
+        return JObject::null().into_raw();
+    }
+
+    let Ok(fluid_array) = env.new_byte_array(len as i32) else {
+        return JObject::null().into_raw();
+    };
+    let fluid_i8: Vec<i8> = fluid.iter().map(|b| *b as i8).collect();
+    if env.set_byte_array_region(&fluid_array, 0, &fluid_i8).is_err() {
+        return JObject::null().into_raw();
+    }
+
+    let obj_array = match env.new_object_array(2, "java/lang/Object", JObject::null()) {
+        Ok(arr) => arr,
+        Err(_) => return JObject::null().into_raw(),
+    };
+    if env.set_object_array_element(&obj_array, 0, density_array).is_err() {
+        return JObject::null().into_raw();
+    }
+    if env.set_object_array_element(&obj_array, 1, fluid_array).is_err() {
+        return JObject::null().into_raw();
+    }
+
+    obj_array.into_raw()
 }
 
 #[no_mangle]

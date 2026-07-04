@@ -21,22 +21,23 @@ pub fn build_section_mesh(block_states: &[u8]) -> SectionMeshResult {
     }
 
     let mut first_non_air = None;
-    let mut all_same = true;
+    let mut all_same_opaque = true;
     let mut fluid_count = 0u32;
     let mut opaque_count = 0u32;
 
     for &state in block_states {
+        match state {
+            0 => {}
+            1 => opaque_count += 1,
+            2 => fluid_count += 1,
+            _ => {}
+        }
         if state == 0 {
             continue;
         }
-        if state == 2 {
-            fluid_count += 1;
-        } else {
-            opaque_count += 1;
-        }
         match first_non_air {
             None => first_non_air = Some(state),
-            Some(first) if first != state => all_same = false,
+            Some(first) if first != state => all_same_opaque = false,
             _ => {}
         }
     }
@@ -51,32 +52,30 @@ pub fn build_section_mesh(block_states: &[u8]) -> SectionMeshResult {
         };
     }
 
-    if all_same && opaque_count > 0 && fluid_count == 0 {
-        return SectionMeshResult {
-            kind: SectionKind::SolidUniform,
-            vertex_data: stub_vertices(),
-            vertex_segments: stub_segments(),
-            visibility: super::occlusion::pack_occlusion(block_states),
-            ready: true,
-        };
-    }
-
     if fluid_count > opaque_count {
         return SectionMeshResult {
             kind: SectionKind::FluidHeavy,
-            vertex_data: stub_vertices(),
-            vertex_segments: stub_segments(),
+            vertex_data: Vec::new(),
+            vertex_segments: [0; super::VERTEX_SEGMENTS_LEN],
             visibility: super::occlusion::pack_occlusion(block_states),
-            ready: true,
+            ready: false,
         };
     }
 
+    let uniform_shell = all_same_opaque && opaque_count > 0 && fluid_count == 0;
+    let mesh = super::mesher::build_culled_mesh(block_states, uniform_shell);
+    let has_vertices = !mesh.vertices.is_empty();
+
     SectionMeshResult {
-        kind: SectionKind::Mixed,
-        vertex_data: stub_vertices(),
-        vertex_segments: stub_segments(),
+        kind: if uniform_shell {
+            SectionKind::SolidUniform
+        } else {
+            SectionKind::Mixed
+        },
+        vertex_data: mesh.vertices,
+        vertex_segments: mesh.segments,
         visibility: super::occlusion::pack_occlusion(block_states),
-        ready: true,
+        ready: has_vertices || uniform_shell,
     }
 }
 
@@ -88,15 +87,4 @@ fn empty_result(kind: SectionKind) -> SectionMeshResult {
         visibility: super::occlusion::fully_visible(),
         ready: false,
     }
-}
-
-fn stub_vertices() -> Vec<u8> {
-    vec![0u8; super::VERTEX_STRIDE * 4]
-}
-
-fn stub_segments() -> [i32; super::VERTEX_SEGMENTS_LEN] {
-    let mut segments = [0i32; super::VERTEX_SEGMENTS_LEN];
-    segments[0] = 4;
-    segments[1] = 2;
-    segments
 }

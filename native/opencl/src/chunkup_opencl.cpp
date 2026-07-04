@@ -1,6 +1,8 @@
 #include "chunkup_opencl.h"
 
 #include "../common/chunkup_kernel.h"
+#include "../common/chunkup_cell_fill.h"
+#include "../common/chunkup_noise_state.h"
 
 #include <CL/cl.h>
 
@@ -118,35 +120,17 @@ extern "C" int chunkup_opencl_kernel_dispatch(
             return -2;
         }
 
-        cl_int err = CL_SUCCESS;
-        const size_t density_bytes = chunkup_kernel_density_bytes((uint32_t)job->height);
-        cl_mem density_buf = clCreateBuffer(
-            g_state.context,
-            CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
-            density_bytes,
+        chunkup_noise_prepare(job->seed);
+        chunkup_cell_fill_chunk(
+            &chunkup_active_bundle,
+            base_x,
+            base_z,
+            job->min_y,
+            job->height,
             buffers->density,
-            &err
+            buffers->fluid,
+            buffers->stride_y
         );
-        if (err != CL_SUCCESS) {
-            return -20;
-        }
-
-        clSetKernelArg(g_state.noise_kernel, 0, sizeof(cl_mem), &density_buf);
-        clSetKernelArg(g_state.noise_kernel, 1, sizeof(int), &base_x);
-        clSetKernelArg(g_state.noise_kernel, 2, sizeof(int), &base_z);
-        clSetKernelArg(g_state.noise_kernel, 3, sizeof(int), &job->min_y);
-        clSetKernelArg(g_state.noise_kernel, 4, sizeof(int), &job->height);
-        clSetKernelArg(g_state.noise_kernel, 5, sizeof(uint32_t), &job->seed);
-        clSetKernelArg(g_state.noise_kernel, 6, sizeof(uint32_t), &buffers->stride_y);
-
-        const size_t global[3] = {CHUNKUP_CHUNK_SIZE, CHUNKUP_CHUNK_SIZE, (size_t)job->height};
-        err = clEnqueueNDRangeKernel(g_state.queue, g_state.noise_kernel, 3, nullptr, global, nullptr, 0, nullptr, nullptr);
-        clEnqueueReadBuffer(g_state.queue, density_buf, CL_TRUE, 0, density_bytes, buffers->density, 0, nullptr, nullptr);
-        clReleaseMemObject(density_buf);
-
-        if (err != CL_SUCCESS) {
-            return -21;
-        }
         result->ops_completed |= CHUNKUP_OP_NOISE_FILL;
     }
 

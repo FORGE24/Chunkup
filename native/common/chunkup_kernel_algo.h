@@ -1,6 +1,8 @@
 #pragma once
 
 #include "chunkup_kernel.h"
+#include "chunkup_noise_bundle.h"
+#include "chunkup_cell_fill.h"
 
 #ifdef __CUDACC__
 #define CHUNKUP_HD __host__ __device__ __forceinline__
@@ -12,24 +14,28 @@
 extern "C" {
 #endif
 
-CHUNKUP_HD uint32_t chunkup_hash_u32(uint32_t x, uint32_t y, uint32_t z, uint32_t seed) {
-    uint32_t h = seed ^ x * 374761393u ^ y * 668265263u ^ z * 2147483647u;
-    h = (h ^ (h >> 13)) * 1274126177u;
-    return h ^ (h >> 16);
-}
+#if defined(__CUDACC__)
+__constant__ ChunkupNoiseBundle chunkup_device_bundle;
+#else
+extern ChunkupNoiseBundle chunkup_active_bundle;
+#endif
 
 CHUNKUP_HD float chunkup_density_at(int wx, int wy, int wz, uint32_t seed) {
-    float n = (float)(chunkup_hash_u32((uint32_t)wx, (uint32_t)wy, (uint32_t)wz, seed) & 0xFFFFu) / 65535.0f;
-    float height_bias = ((float)wy / 256.0f) - 0.45f;
-    return n * 0.4f + height_bias;
+    (void)seed;
+#if defined(__CUDACC__)
+    const ChunkupNoiseBundle* bundle = &chunkup_device_bundle;
+#else
+    const ChunkupNoiseBundle* bundle = &chunkup_active_bundle;
+#endif
+    const float fx = (float)wx;
+    const float fy = (float)wy;
+    const float fz = (float)wz;
+    ChunkupRouterSample2D s2d = chunkup_router_sample_2d(bundle, fx, fz);
+    return chunkup_router_initial_density(bundle, &s2d, fx, fy, fz);
 }
 
 CHUNKUP_HD int chunkup_is_solid(float density) {
     return density > 0.0f;
-}
-
-CHUNKUP_HD uint32_t chunkup_block_index(int lx, int ly, int lz, uint32_t stride_y) {
-    return (uint32_t)ly * stride_y + (uint32_t)lz * CHUNKUP_CHUNK_SIZE + (uint32_t)lx;
 }
 
 CHUNKUP_HD float chunkup_density_sample(

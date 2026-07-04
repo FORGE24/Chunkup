@@ -2,7 +2,7 @@ package cn.sanrolnet.chunkup.client.mixin.sodium;
 
 import cn.sanrolnet.chunkup.client.render.SectionBuildCache;
 import cn.sanrolnet.chunkup.render.SectionKey;
-import net.caffeinemc.mods.sodium.client.render.chunk.RenderSectionManager;
+import me.jellysquid.mods.sodium.client.render.chunk.RenderSectionManager;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;

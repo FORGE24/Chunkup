@@ -17,6 +17,18 @@ interface EngineBridge {
 	/** 区块生成阶段回调；返回 false 表示引擎未能处理（仍继续原版流程）。 */
 	fun onChunkGeneration(stage: cn.sanrolnet.chunkup.minecraft.generation.ChunkGenerationStage, chunkX: Int, chunkZ: Int): Boolean
 
+	/**
+	 * 生成区块密度场（长度 = 16×16×height）及 Aquifer 流体标记。
+	 * 布局：`index = ly * 256 + lz * 16 + lx`
+	 */
+	fun generateChunkDensity(
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+	): ChunkDensityFill? = null
+
 	/** Section 网格构建；无可用结果时返回 null。 */
 	fun onSectionBuild(sectionX: Int, sectionY: Int, sectionZ: Int, blockStates: ByteArray): cn.sanrolnet.chunkup.render.SectionBuildPayload? = null
 

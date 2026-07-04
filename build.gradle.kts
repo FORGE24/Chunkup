@@ -11,6 +11,17 @@ plugins {
 version = providers.gradleProperty("mod_version").get()
 group = providers.gradleProperty("maven_group").get()
 
+val lwjglVersion = "3.3.1"
+
+configurations.configureEach {
+	resolutionStrategy.eachDependency {
+		if (requested.group == "org.lwjgl") {
+			useVersion(lwjglVersion)
+			because("Lock LWJGL to $lwjglVersion")
+		}
+	}
+}
+
 repositories {
 	maven {
 		name = "Modrinth"
@@ -99,35 +110,111 @@ tasks.jar {
 
 // ---------------------------------------------------------------------------
 // Native engine: Kotlin → JNI/FFM → Rust → CUDA/OpenCL/CPU
-// Run `./scripts/build-engine.ps1` or `./scripts/build-engine.sh` first.
 // ---------------------------------------------------------------------------
 
-val nativeLibDir = layout.projectDirectory.dir("build/native")
+tasks.register<Exec>("extractOverworldRouter") {
+	group = "chunkup"
+	description = "Parse overworld.json noise_router into chunkup_overworld_router.h"
+	workingDir = layout.projectDirectory.asFile
+	val python = if (System.getProperty("os.name").lowercase().contains("windows")) "python" else "python3"
+	commandLine(python, layout.projectDirectory.file("scripts/extract-overworld-router.py").asFile.absolutePath)
+}
+
+tasks.named<Exec>("buildGpuNativeEngine") {
+	dependsOn("extractOverworldRouter")
+}
+
+tasks.named<Exec>("buildNativeEngine") {
+	dependsOn("extractOverworldRouter")
+}
+
+fun nativePlatformDirectory(): String {
+	val os = System.getProperty("os.name").lowercase()
+	val arch = System.getProperty("os.arch").lowercase()
+	return when {
+		os.contains("win") -> "windows-x86_64"
+		os.contains("mac") -> if (arch.contains("aarch64") || arch.contains("arm64")) "macos-aarch64" else "macos-x86_64"
+		else -> if (arch.contains("aarch64") || arch.contains("arm64")) "linux-aarch64" else "linux-x86_64"
+	}
+}
+
+val nativeOutputDir = layout.buildDirectory.dir("native")
 val rustReleaseDir = layout.projectDirectory.dir("engine/target/release")
+val nativeGpuDir = layout.projectDirectory.dir("build/native-gpu")
 
 tasks.register<Exec>("buildNativeEngine") {
 	group = "chunkup"
 	description = "Build Rust core via cargo (release)"
+	dependsOn("buildGpuNativeEngine")
 	workingDir = layout.projectDirectory.dir("engine").asFile
-	commandLine(
-		if (System.getProperty("os.name").lowercase().contains("windows")) "cargo" else "cargo",
-		"build",
-		"--release",
-	)
+	commandLine("cargo", "build", "--release")
+}
+
+tasks.register<Exec>("buildGpuNativeEngine") {
+	group = "chunkup"
+	description = "Build CUDA/OpenCL backends via scripts/build-engine.ps1"
+	workingDir = layout.projectDirectory.asFile
+	val script = layout.projectDirectory.file("scripts/build-engine.ps1").asFile
+	if (System.getProperty("os.name").lowercase().contains("windows")) {
+		commandLine(
+			"powershell",
+			"-NoProfile",
+			"-ExecutionPolicy", "Bypass",
+			"-File", script.absolutePath,
+		)
+	} else {
+		commandLine("bash", layout.projectDirectory.file("scripts/build-engine.sh").asFile.absolutePath)
+	}
 }
 
 tasks.register<Copy>("copyNativeLibraries") {
 	group = "chunkup"
-	description = "Copy chunkup_core native library into build/native for dev runs"
+	description = "Assemble native libraries into build/native and stage for jar embedding"
 	dependsOn("buildNativeEngine")
+
 	from(rustReleaseDir) {
 		include("chunkup_core.dll", "libchunkup_core.so", "libchunkup_core.dylib")
 	}
-	from(nativeLibDir) {
+
+	// CUDA / OpenCL：build-engine 脚本产出（新路径 build/native-gpu）
+	from(nativeGpuDir) {
 		include("*.dll", "*.so", "*.dylib")
 	}
-	into(layout.buildDirectory.dir("native"))
+
+	// 兼容旧脚本直接写入 build/native 的 GPU 库
+	from(layout.projectDirectory.dir("build/native")) {
+		include("chunkup_cuda.dll", "chunkup_opencl.dll", "libchunkup_cuda.so", "libchunkup_opencl.so")
+	}
+
+	into(nativeOutputDir)
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.register<Copy>("stageNativeForJar") {
+	group = "chunkup"
+	description = "Copy build/native into resources path for jar packaging"
+	dependsOn("copyNativeLibraries")
+	from(nativeOutputDir) {
+		include("*.dll", "*.so", "*.dylib")
+	}
+	into(layout.buildDirectory.dir("generated/native/${nativePlatformDirectory()}"))
 	duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
+tasks.named<ProcessResources>("processResources") {
+	dependsOn("stageNativeForJar")
+	from(layout.buildDirectory.dir("generated/native")) {
+		include("**/*")
+		into("assets/chunkup/native")
+	}
+}
+
+tasks.named("jar") {
+	dependsOn("copyNativeLibraries")
+}
+
+tasks.named("build") {
+	dependsOn("copyNativeLibraries")
 }
 
 tasks.named("runClient") {

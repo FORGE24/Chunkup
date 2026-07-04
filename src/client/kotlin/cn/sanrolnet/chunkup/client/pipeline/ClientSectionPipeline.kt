@@ -37,7 +37,7 @@ object ClientSectionPipeline {
 			scheduleChunk(chunk)
 		}
 		ClientChunkEvents.CHUNK_UNLOAD.register { _: Level?, chunk: LevelChunk ->
-			SectionBuildCache.invalidateChunk(chunk.x, chunk.z)
+			SectionBuildCache.invalidateChunk(chunk.pos.x, chunk.pos.z)
 		}
 		ClientTickEvents.END_CLIENT_TICK.register {
 			onClientTick()
@@ -71,14 +71,14 @@ object ClientSectionPipeline {
 	private fun reprioritizeNearbySections() {
 		val player = Minecraft.getInstance().player ?: return
 		val world = Minecraft.getInstance().level ?: return
-		val renderDistance = Minecraft.getInstance().options.renderDistance().get
+		val renderDistance = Minecraft.getInstance().options.renderDistance().get()
 		val chunkRadius = renderDistance + 1
 		val centerChunkX = player.blockPosition().x shr 4
 		val centerChunkZ = player.blockPosition().z shr 4
 
 		for (chunkX in (centerChunkX - chunkRadius)..(centerChunkX + chunkRadius)) {
 			for (chunkZ in (centerChunkZ - chunkRadius)..(centerChunkZ + chunkRadius)) {
-				val chunk = world.chunkSource.getChunkNow(chunkX, chunkZ) as? LevelChunk ?: continue
+				val chunk = world.chunkSource.getChunkNow(chunkX, chunkZ) ?: continue
 				scheduleChunk(chunk, reprioritize = true)
 			}
 		}
@@ -94,8 +94,8 @@ object ClientSectionPipeline {
 		val maxSection = chunk.level.maxSection
 
 		for (sectionY in minSection until maxSection) {
-			val sectionX = chunk.x shl 4
-			val sectionZ = chunk.z shl 4
+			val sectionX = chunk.pos.x shl 4
+			val sectionZ = chunk.pos.z shl 4
 			val key = SectionKey(sectionX, sectionY shl 4, sectionZ)
 			if (SectionBuildCache.get(key) != null) continue
 
@@ -163,14 +163,19 @@ object ClientSectionPipeline {
 	}
 
 	private fun extractBlockStates(chunk: LevelChunk, sectionY: Int): ByteArray {
-		val section = chunk.getSection(chunk.getSectionIndexFromY(sectionY shl 4))
+		val section = chunk.getSection(chunk.getSectionIndexFromSectionY(sectionY))
 		val states = ByteArray(4096)
 		var index = 0
 		for (y in 0 until 16) {
 			for (z in 0 until 16) {
 				for (x in 0 until 16) {
 					val state = section.getBlockState(x, y, z)
-					states[index++] = if (state.isAir) 0 else 1
+					states[index++] = when {
+						state.isAir -> 0
+						!state.fluidState.isEmpty -> 2
+						state.blocksMotion() -> 1
+						else -> 3
+					}
 				}
 			}
 		}

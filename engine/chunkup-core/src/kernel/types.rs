@@ -64,11 +64,30 @@ impl KernelJob {
             stage: stage_u,
         }
     }
+
+    pub fn for_density_fill(
+        chunk_x: i32,
+        chunk_z: i32,
+        min_y: i32,
+        height: i32,
+        seed: u32,
+    ) -> Self {
+        Self {
+            chunk_x,
+            chunk_z,
+            min_y,
+            height,
+            seed,
+            op_mask: KernelOp::NoiseFill as u32,
+            stage: Stage::NoiseFill as u32,
+        }
+    }
 }
 
 #[repr(C)]
 pub struct KernelBuffers {
     pub density: *mut f32,
+    pub fluid: *mut u8,
     pub skylight: *mut u8,
     pub blocklight: *mut u8,
     pub face_mask: *mut u8,
@@ -79,6 +98,7 @@ impl KernelBuffers {
     pub fn from_workspace(workspace: &mut super::workspace::KernelWorkspace) -> Self {
         Self {
             density: workspace.density.as_mut_ptr(),
+            fluid: workspace.fluid.as_mut_ptr(),
             skylight: workspace.skylight.as_mut_ptr(),
             blocklight: workspace.blocklight.as_mut_ptr(),
             face_mask: workspace.face_mask.as_mut_ptr(),
@@ -100,24 +120,6 @@ extern "C" {
     pub fn chunkup_kernel_light_bytes(height: u32) -> u32;
     pub fn chunkup_kernel_face_mask_bytes(height: u32) -> u32;
     pub fn chunkup_kernel_dispatch_cpu(
-        job: *const KernelJob,
-        buffers: *mut KernelBuffers,
-        result: *mut KernelResult,
-    ) -> c_int;
-}
-
-#[cfg(feature = "cuda")]
-extern "C" {
-    pub fn chunkup_cuda_kernel_dispatch(
-        job: *const KernelJob,
-        buffers: *mut KernelBuffers,
-        result: *mut KernelResult,
-    ) -> c_int;
-}
-
-#[cfg(feature = "opencl")]
-extern "C" {
-    pub fn chunkup_opencl_kernel_dispatch(
         job: *const KernelJob,
         buffers: *mut KernelBuffers,
         result: *mut KernelResult,

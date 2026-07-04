@@ -1,4 +1,5 @@
 #include "chunkup_kernel.h"
+#include "chunkup_noise_state.h"
 #include "chunkup_kernel_algo.h"
 
 #include <string.h>
@@ -20,6 +21,10 @@ uint32_t chunkup_kernel_density_bytes(uint32_t height) {
     return CHUNKUP_BLOCKS_PER_SECTION * height * (uint32_t)sizeof(float);
 }
 
+uint32_t chunkup_kernel_fluid_bytes(uint32_t height) {
+    return CHUNKUP_BLOCKS_PER_SECTION * height;
+}
+
 uint32_t chunkup_kernel_light_bytes(uint32_t height) {
     return CHUNKUP_BLOCKS_PER_SECTION * height;
 }
@@ -29,18 +34,21 @@ uint32_t chunkup_kernel_face_mask_bytes(uint32_t height) {
 }
 
 static void chunkup_op_noise_fill(const ChunkupKernelJob* job, ChunkupKernelBuffers* buffers) {
+    chunkup_noise_prepare(job->seed);
+
     const int base_x = job->chunk_x * (int)CHUNKUP_CHUNK_SIZE;
     const int base_z = job->chunk_z * (int)CHUNKUP_CHUNK_SIZE;
 
-    for (int ly = 0; ly < job->height; ++ly) {
-        const int wy = job->min_y + ly;
-        for (int lz = 0; lz < (int)CHUNKUP_CHUNK_SIZE; ++lz) {
-            for (int lx = 0; lx < (int)CHUNKUP_CHUNK_SIZE; ++lx) {
-                const uint32_t idx = chunkup_block_index(lx, ly, lz, buffers->stride_y);
-                buffers->density[idx] = chunkup_density_at(base_x + lx, wy, base_z + lz, job->seed);
-            }
-        }
-    }
+    chunkup_cell_fill_chunk(
+        &chunkup_active_bundle,
+        base_x,
+        base_z,
+        job->min_y,
+        job->height,
+        buffers->density,
+        buffers->fluid,
+        buffers->stride_y
+    );
 }
 
 static void chunkup_op_skylight(const ChunkupKernelJob* job, ChunkupKernelBuffers* buffers) {
