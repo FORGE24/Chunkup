@@ -1,0 +1,16 @@
+{
+	"required": true,
+	"package": "cn.sanrolnet.chunkup.client.mixin",
+	"compatibilityLevel": "JAVA_17",
+	"plugin": "cn.sanrolnet.chunkup.client.mixin.ChunkupClientMixinPlugin",
+	"client": [
+		"sodium.ChunkBuilderMeshingTaskMixin",
+		"sodium.RenderSectionManagerMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}

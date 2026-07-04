@@ -1,0 +1,14 @@
+[package]
+name = "chunkup-cpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Chunkup CPU fallback backend with AVX/NEON SIMD"
+
+[features]
+default = []
+simd = []
+
+[dependencies]
+
+[dev-dependencies]

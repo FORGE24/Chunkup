@@ -1,0 +1,54 @@
+{
+	"schemaVersion": 1,
+	"id": "chunkup",
+	"version": "${version}",
+	"name": "Chunkup",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"Me!"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/chunkup/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			{
+				"value": "cn.sanrolnet.chunkup.Chunkup",
+				"adapter": "kotlin"
+			}
+		],
+		"client": [
+			{
+				"value": "cn.sanrolnet.chunkup.client.ChunkupClient",
+				"adapter": "kotlin"
+			}
+		],
+		"fabric-datagen": [
+			{
+				"value": "cn.sanrolnet.chunkup.client.ChunkupDataGenerator",
+				"adapter": "kotlin"
+			}
+		]
+	},
+	"mixins": [
+		"chunkup.mixins.json",
+		{
+			"config": "chunkup.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*",
+		"fabric-language-kotlin": "*"
+	},
+	"suggests": {
+		"sodium": "*"
+	}
+}

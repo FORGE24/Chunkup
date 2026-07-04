@@ -1,0 +1,25 @@
+[package]
+name = "chunkup-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Chunkup core engine: noise, lighting, culling, compression, IO, memory, backend dispatch"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "chunkup_core"
+
+[dependencies]
+chunkup-cpu = { path = "../chunkup-cpu" }
+jni = "0.21"
+log = "0.4"
+env_logger = "0.11"
+
+[features]
+default = ["cpu"]
+cpu = ["chunkup-cpu/simd"]
+cuda = []
+opencl = []
+
+[build-dependencies]
+cc = "1.2"

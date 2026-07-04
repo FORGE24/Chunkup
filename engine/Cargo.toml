@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "chunkup-core",
+    "chunkup-cpu",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "CC0-1.0"
+
+[profile.release]
+lto = true
+codegen-units = 1

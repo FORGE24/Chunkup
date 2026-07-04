@@ -1,0 +1,17 @@
+{
+	"required": true,
+	"package": "cn.sanrolnet.chunkup.mixin",
+	"compatibilityLevel": "JAVA_17",
+	"mixins": [
+		"generation.ChunkGeneratorMixin",
+		"generation.ChunkMapMixin",
+		"generation.NoiseBasedChunkGeneratorMixin",
+		"generation.ChunkAccessMixin",
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}
