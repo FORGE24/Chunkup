@@ -8,6 +8,7 @@
  * 3. 对块坐标三线性插值
  */
 
+#include "chunkup_compat.h"
 #include "chunkup_density_router.h"
 #include "chunkup_kernel.h"
 
@@ -22,19 +23,19 @@ typedef struct ChunkupCellCache2D {
     ChunkupRouterSample2D samples[5][5];
 } ChunkupCellCache2D;
 
-static inline int chunkup_cell_index_x(int lx) {
+CHUNKUP_FN int chunkup_cell_index_x(int lx) {
     return lx / (int)CHUNKUP_CELL_W;
 }
 
-static inline int chunkup_cell_index_y(int ly) {
+CHUNKUP_FN int chunkup_cell_index_y(int ly) {
     return ly / (int)CHUNKUP_CELL_H;
 }
 
-static inline float chunkup_cell_frac(int local, int cell_size) {
+CHUNKUP_FN float chunkup_cell_frac(int local, int cell_size) {
     return (float)local / (float)cell_size;
 }
 
-static inline void chunkup_cell_build_2d_cache(
+CHUNKUP_FN void chunkup_cell_build_2d_cache(
     const ChunkupNoiseBundle* bundle,
     int base_x,
     int base_z,
@@ -49,7 +50,7 @@ static inline void chunkup_cell_build_2d_cache(
     }
 }
 
-static inline float chunkup_cell_corner_density(
+CHUNKUP_FN float chunkup_cell_corner_density(
     const ChunkupNoiseBundle* bundle,
     const ChunkupCellCache2D* cache,
     int ci,
@@ -66,7 +67,7 @@ static inline float chunkup_cell_corner_density(
     return chunkup_router_initial_density(bundle, s2d, wx, wy, wz);
 }
 
-static inline float chunkup_cell_interpolated_density(
+CHUNKUP_FN float chunkup_cell_interpolated_density(
     const ChunkupNoiseBundle* bundle,
     const ChunkupCellCache2D* cache,
     int base_x,
@@ -96,7 +97,7 @@ static inline float chunkup_cell_interpolated_density(
     return chunkup_trilinear(tx, ty, tz, c000, c100, c010, c110, c001, c101, c011, c111);
 }
 
-static inline void chunkup_cell_fill_chunk(
+CHUNKUP_FN void chunkup_cell_fill_chunk(
     const ChunkupNoiseBundle* bundle,
     int base_x,
     int base_z,

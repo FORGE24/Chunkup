@@ -9,6 +9,7 @@
  * - SimplexNoise.GRADIENT 梯度表
  */
 
+#include "chunkup_compat.h"
 #include <stdint.h>
 #include <math.h>
 
@@ -25,12 +26,12 @@ typedef struct ChunkupNoiseTables {
     float zo;
 } ChunkupNoiseTables;
 
-static inline uint32_t chunkup_noise_lcg(uint32_t* state) {
+CHUNKUP_FN uint32_t chunkup_noise_lcg(uint32_t* state) {
     *state = *state * 1664525u + 1013904223u;
     return *state;
 }
 
-static inline void chunkup_noise_init_tables(ChunkupNoiseTables* tables, uint32_t seed) {
+CHUNKUP_FN void chunkup_noise_init_tables(ChunkupNoiseTables* tables, uint32_t seed) {
     uint32_t rng = seed ^ 0xA341316Cu;
 
     for (int i = 0; i < 256; ++i) {
@@ -54,19 +55,19 @@ static inline void chunkup_noise_init_tables(ChunkupNoiseTables* tables, uint32_
     tables->zo = (float)chunkup_noise_lcg(&rng) / 65536.0f * 256.0f;
 }
 
-static inline int chunkup_noise_perm_index(const ChunkupNoiseTables* tables, int i) {
+CHUNKUP_FN int chunkup_noise_perm_index(const ChunkupNoiseTables* tables, int i) {
     return (int)tables->perm[i & 255];
 }
 
-static inline float chunkup_noise_smoothstep(float t) {
+CHUNKUP_FN float chunkup_noise_smoothstep(float t) {
     return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
 }
 
-static inline float chunkup_noise_lerp(float a, float b, float t) {
+CHUNKUP_FN float chunkup_noise_lerp(float a, float b, float t) {
     return a + t * (b - a);
 }
 
-static inline float chunkup_noise_lerp3(
+CHUNKUP_FN float chunkup_noise_lerp3(
     float t_x,
     float t_y,
     float t_z,
@@ -88,7 +89,7 @@ static inline float chunkup_noise_lerp3(
     return chunkup_noise_lerp(e, f, t_z);
 }
 
-static inline float chunkup_noise_grad_dot(int hash, float x, float y, float z) {
+CHUNKUP_FN float chunkup_noise_grad_dot(int hash, float x, float y, float z) {
     switch (hash & 15) {
         case 0:  return  x + y;
         case 1:  return -x + y;
@@ -109,7 +110,7 @@ static inline float chunkup_noise_grad_dot(int hash, float x, float y, float z) 
     }
 }
 
-static inline float chunkup_improved_noise3(
+CHUNKUP_FN float chunkup_improved_noise3(
     const ChunkupNoiseTables* tables,
     float x,
     float y,
@@ -149,7 +150,7 @@ static inline float chunkup_improved_noise3(
 }
 
 /** 多八度 NormalNoise 风格叠加（振幅随频率递减）。 */
-static inline float chunkup_fractal_noise3(
+CHUNKUP_FN float chunkup_fractal_noise3(
     const ChunkupNoiseTables* tables,
     float x,
     float y,

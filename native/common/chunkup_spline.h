@@ -1,23 +1,24 @@
 #pragma once
 
+#include "chunkup_compat.h"
 #include <math.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-static inline float chunkup_clampf(float v, float lo, float hi) {
+CHUNKUP_FN float chunkup_clampf(float v, float lo, float hi) {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
 }
 
-static inline float chunkup_lerp1d(float a, float b, float t) {
+CHUNKUP_FN float chunkup_lerp1d(float a, float b, float t) {
     return a + (b - a) * t;
 }
 
 /** 分段线性样条查表（控制点已按 location 升序）。 */
-static inline float chunkup_spline_lookup(
+CHUNKUP_FN float chunkup_spline_lookup(
     float x,
     const float* loc,
     const float* val,
@@ -46,7 +47,7 @@ static inline float chunkup_spline_lookup(
     return val[count - 1];
 }
 
-static inline float chunkup_y_clamped_gradient(
+CHUNKUP_FN float chunkup_y_clamped_gradient(
     float y,
     int from_y,
     float from_value,
@@ -60,11 +61,12 @@ static inline float chunkup_y_clamped_gradient(
     return chunkup_lerp1d(from_value, to_value, t);
 }
 
-static inline float chunkup_quarter_negative(float v) {
-    return v > 0.0f ? -v : v;
+/** minecraft:quarter_negative — 正数不变，非正数 × 0.25 */
+CHUNKUP_FN float chunkup_quarter_negative(float v) {
+    return v > 0.0f ? v : v * 0.25f;
 }
 
-static inline float chunkup_trilinear(
+CHUNKUP_FN float chunkup_trilinear(
     float tx,
     float ty,
     float tz,

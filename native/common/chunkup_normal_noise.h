@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chunkup_compat.h"
 #include "chunkup_improved_noise.h"
 
 #ifdef __cplusplus
@@ -7,7 +8,7 @@ extern "C" {
 #endif
 
 /** Minecraft NormalNoise 近似：双 ImprovedNoise 混合 + 振幅表。 */
-static inline float chunkup_normal_noise2d(
+CHUNKUP_FN float chunkup_normal_noise2d(
     const ChunkupNoiseTables* tables,
     float x,
     float z,
@@ -42,7 +43,7 @@ static inline float chunkup_normal_noise2d(
     return norm > 0.0f ? sum / norm : 0.0f;
 }
 
-static inline float chunkup_normal_noise3d(
+CHUNKUP_FN float chunkup_normal_noise3d(
     const ChunkupNoiseTables* tables,
     float x,
     float y,

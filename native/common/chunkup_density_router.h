@@ -9,6 +9,7 @@
  * - initial_density：JSON 系数树
  */
 
+#include "chunkup_compat.h"
 #include "chunkup_overworld_router.h"
 #include "chunkup_normal_noise.h"
 #include "chunkup_noise_bundle.h"
@@ -26,10 +27,10 @@ typedef struct ChunkupRouterSample2D {
     float factor;
 } ChunkupRouterSample2D;
 
-static const float CHUNKUP_SHIFT_AMP[] = {1.0f};
-static const float CHUNKUP_BASE3D_AMP[] = {1.0f, 1.0f, 1.0f, 0.0f};
+CHUNKUP_ARRAY float CHUNKUP_SHIFT_AMP[] = {1.0f};
+CHUNKUP_ARRAY float CHUNKUP_BASE3D_AMP[] = {1.0f, 1.0f, 1.0f, 0.0f};
 
-static inline float chunkup_router_shift(
+CHUNKUP_FN float chunkup_router_shift(
     const ChunkupNoiseBundle* bundle,
     float wx,
     float wz
@@ -38,7 +39,7 @@ static inline float chunkup_router_shift(
     return chunkup_normal_noise2d(shift, wx * 0.25f, wz * 0.25f, -3, CHUNKUP_SHIFT_AMP, 1);
 }
 
-static inline float chunkup_router_shifted_noise2d(
+CHUNKUP_FN float chunkup_router_shifted_noise2d(
     const ChunkupNoiseBundle* bundle,
     uint32_t slot,
     int first_octave,
@@ -60,7 +61,7 @@ static inline float chunkup_router_shifted_noise2d(
     );
 }
 
-static inline float chunkup_router_offset_from_continents(float continents) {
+CHUNKUP_FN float chunkup_router_offset_from_continents(float continents) {
     return chunkup_spline_lookup(
         continents,
         CHUNKUP_SPLINE_OFFSET_CONTINENTS_LOC,
@@ -69,7 +70,7 @@ static inline float chunkup_router_offset_from_continents(float continents) {
     );
 }
 
-static inline float chunkup_router_factor_from_continents(float continents) {
+CHUNKUP_FN float chunkup_router_factor_from_continents(float continents) {
     return chunkup_spline_lookup(
         continents,
         CHUNKUP_SPLINE_FACTOR_CONTINENTS_LOC,
@@ -78,7 +79,7 @@ static inline float chunkup_router_factor_from_continents(float continents) {
     );
 }
 
-static inline ChunkupRouterSample2D chunkup_router_sample_2d(
+CHUNKUP_FN ChunkupRouterSample2D chunkup_router_sample_2d(
     const ChunkupNoiseBundle* bundle,
     float wx,
     float wz
@@ -118,7 +119,7 @@ static inline ChunkupRouterSample2D chunkup_router_sample_2d(
     return s;
 }
 
-static inline float chunkup_router_depth(
+CHUNKUP_FN float chunkup_router_depth(
     const ChunkupRouterSample2D* s2d,
     float wy
 ) {
@@ -132,7 +133,7 @@ static inline float chunkup_router_depth(
     return y_term + s2d->offset;
 }
 
-static inline float chunkup_router_base3d(
+CHUNKUP_FN float chunkup_router_base3d(
     const ChunkupNoiseBundle* bundle,
     float wx,
     float wy,
@@ -146,7 +147,7 @@ static inline float chunkup_router_base3d(
         * CHUNKUP_BASE3D_SMEAR;
 }
 
-static inline float chunkup_router_initial_density(
+CHUNKUP_FN float chunkup_router_initial_density(
     const ChunkupNoiseBundle* bundle,
     const ChunkupRouterSample2D* s2d,
     float wx,
@@ -187,7 +188,7 @@ static inline float chunkup_router_initial_density(
 }
 
 /** Aquifer 近似：0=空气, 1=水, 2=熔岩 */
-static inline uint8_t chunkup_router_aquifer_fluid(
+CHUNKUP_FN uint8_t chunkup_router_aquifer_fluid(
     const ChunkupNoiseBundle* bundle,
     float wx,
     float wy,

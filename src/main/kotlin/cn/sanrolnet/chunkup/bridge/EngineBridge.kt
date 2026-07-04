@@ -1,5 +1,7 @@
 package cn.sanrolnet.chunkup.bridge
 
+import cn.sanrolnet.chunkup.minecraft.generation.ChunkDensityFill
+
 /**
  * Kotlin ↔ 原生引擎的统一入口。
  *

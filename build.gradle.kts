@@ -44,7 +44,9 @@ loom {
 
 	runs {
 		named("client") {
-			vmArg("-Djava.library.path=${layout.buildDirectory.dir("native").get().asFile.absolutePath}")
+			val nativeDir = layout.buildDirectory.dir("native").get().asFile.absolutePath
+			vmArg("-Djava.library.path=$nativeDir")
+			vmArg("-Dchunkup.native.dir=$nativeDir")
 		}
 	}
 }
@@ -120,12 +122,30 @@ tasks.register<Exec>("extractOverworldRouter") {
 	commandLine(python, layout.projectDirectory.file("scripts/extract-overworld-router.py").asFile.absolutePath)
 }
 
-tasks.named<Exec>("buildGpuNativeEngine") {
+tasks.register<Exec>("buildGpuNativeEngine") {
+	group = "chunkup"
+	description = "Build CUDA/OpenCL backends via scripts/build-engine.ps1"
 	dependsOn("extractOverworldRouter")
+	workingDir = layout.projectDirectory.asFile
+	val script = layout.projectDirectory.file("scripts/build-engine.ps1").asFile
+	if (System.getProperty("os.name").lowercase().contains("windows")) {
+		commandLine(
+			"powershell",
+			"-NoProfile",
+			"-ExecutionPolicy", "Bypass",
+			"-File", script.absolutePath,
+		)
+	} else {
+		commandLine("bash", layout.projectDirectory.file("scripts/build-engine.sh").asFile.absolutePath)
+	}
 }
 
-tasks.named<Exec>("buildNativeEngine") {
-	dependsOn("extractOverworldRouter")
+tasks.register<Exec>("buildNativeEngine") {
+	group = "chunkup"
+	description = "Build Rust core via cargo (release)"
+	dependsOn("buildGpuNativeEngine")
+	workingDir = layout.projectDirectory.dir("engine").asFile
+	commandLine("cargo", "build", "--release")
 }
 
 fun nativePlatformDirectory(): String {
@@ -141,31 +161,6 @@ fun nativePlatformDirectory(): String {
 val nativeOutputDir = layout.buildDirectory.dir("native")
 val rustReleaseDir = layout.projectDirectory.dir("engine/target/release")
 val nativeGpuDir = layout.projectDirectory.dir("build/native-gpu")
-
-tasks.register<Exec>("buildNativeEngine") {
-	group = "chunkup"
-	description = "Build Rust core via cargo (release)"
-	dependsOn("buildGpuNativeEngine")
-	workingDir = layout.projectDirectory.dir("engine").asFile
-	commandLine("cargo", "build", "--release")
-}
-
-tasks.register<Exec>("buildGpuNativeEngine") {
-	group = "chunkup"
-	description = "Build CUDA/OpenCL backends via scripts/build-engine.ps1"
-	workingDir = layout.projectDirectory.asFile
-	val script = layout.projectDirectory.file("scripts/build-engine.ps1").asFile
-	if (System.getProperty("os.name").lowercase().contains("windows")) {
-		commandLine(
-			"powershell",
-			"-NoProfile",
-			"-ExecutionPolicy", "Bypass",
-			"-File", script.absolutePath,
-		)
-	} else {
-		commandLine("bash", layout.projectDirectory.file("scripts/build-engine.sh").asFile.absolutePath)
-	}
-}
 
 tasks.register<Copy>("copyNativeLibraries") {
 	group = "chunkup"

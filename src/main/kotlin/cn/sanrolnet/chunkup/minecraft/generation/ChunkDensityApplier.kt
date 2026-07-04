@@ -12,15 +12,13 @@ import net.minecraft.world.level.chunk.ChunkAccess
  * `index = ly * 256 + lz * 16 + lx`
  *
  * - density > 0 → default_block（stone / deepslate）
- * - density ≤ 0 + fluid=1 → water（Aquifer / 海平面）
+ * - density ≤ 0 + fluid=1 → water（Aquifer）
  * - density ≤ 0 + fluid=2 → lava
  * - 其余 → air
  */
 object ChunkDensityApplier {
 	private const val CHUNK_SIZE = 16
 	private const val STRIDE_Y = CHUNK_SIZE * CHUNK_SIZE
-	private const val SEA_LEVEL = 63
-
 	private const val FLUID_NONE: Byte = 0
 	private const val FLUID_WATER: Byte = 1
 	private const val FLUID_LAVA: Byte = 2
@@ -71,10 +69,7 @@ object ChunkDensityApplier {
 		return when (fluid) {
 			FLUID_LAVA -> LAVA
 			FLUID_WATER -> WATER
-			else -> {
-				// 海平面以下无 Aquifer 采样时仍填充静态海水
-				if (worldY <= SEA_LEVEL) WATER else AIR
-			}
+			else -> AIR
 		}
 	}
 }

@@ -51,18 +51,23 @@ function Find-VcVars64 {
         }
     }
 
-    # VS 18 (2026) + CUDA 11.8: use bundled MSVC 14.29 (VS 2019 toolset).
-    $vs18 = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-    if (Test-Path $vs18) {
-        $msvcRoot = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC"
-        $toolsets = @("14.29.30133", "14.16.27023")
+    # VS 18/26（Build Tools）+ CUDA 11.8：强制使用 MSVC 14.29 工具集。
+    $vsNewRoots = @(
+        "D:\ProgramData\Microsoft\VisualStudio\26",
+        "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools"
+    )
+    $toolsets = @("14.29.30133", "14.16.27023")
+    foreach ($root in $vsNewRoots) {
+        $vcvars = Join-Path $root "VC\Auxiliary\Build\vcvars64.bat"
+        if (-not (Test-Path $vcvars)) { continue }
+        $msvcRoot = Join-Path $root "VC\Tools\MSVC"
         foreach ($ver in $toolsets) {
             if (Test-Path (Join-Path $msvcRoot $ver)) {
                 $short = ($ver -split '\.')[0..1] -join '.'
-                return @{ Path = $vs18; Toolset = $short }
+                return @{ Path = $vcvars; Toolset = $short }
             }
         }
-        return @{ Path = $vs18; Toolset = $null }
+        return @{ Path = $vcvars; Toolset = "14.29" }
     }
 
     return $null
@@ -102,7 +107,13 @@ function Build-CudaWithNvcc($Root, $OutDir) {
     $incCommon = Join-Path $Root "native\common"
     $out = Join-Path $GpuOutDir "chunkup_cuda.dll"
 
-    $nvccFlags = @("-shared", "-o", "`"$out`"", "`"$cu`"", "`"$hostc`"", "-I`"$incCuda`"", "-I`"$incCommon`"", "--compiler-options", "/utf-8")
+    $noiseState = Join-Path $Root "native\common\chunkup_noise_state.c"
+    $nvccFlags = @(
+        "-shared", "-o", "`"$out`"",
+        "`"$cu`"", "`"$hostc`"", "`"$noiseState`"",
+        "-I`"$incCuda`"", "-I`"$incCommon`"",
+        "--compiler-options", "/utf-8"
+    )
     if ($cudaVersion.Major -lt 12) {
         $nvccFlags = @("-allow-unsupported-compiler") + $nvccFlags
     }
@@ -119,8 +130,9 @@ function Build-CudaWithNvcc($Root, $OutDir) {
     cmd /c $cmd
     if (-not $?) {
         Write-Host "==> CUDA build failed"
-        Write-Host "    Detected: CUDA $cudaVersion + VS 18 is incompatible."
-        Write-Host "    Fix: install VS 2022 Build Tools (C++), or upgrade CUDA Toolkit to 12.8+."
+        Write-Host "    CUDA $cudaVersion requires MSVC 14.29 or VS 2022 (not 14.51)."
+        Write-Host "    Current vcvars: $($vcvars.Path) toolset=$($vcvars.Toolset)"
+        Write-Host "    Fix: use -vcvars_ver=14.29, install VS 2022 Build Tools, or upgrade CUDA to 12.8+."
         return $false
     }
 

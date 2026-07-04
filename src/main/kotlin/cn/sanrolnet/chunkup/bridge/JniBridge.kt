@@ -19,6 +19,11 @@ object JniBridge : EngineBridge {
 
 	init {
 		loaded = NativeLibraryLoader.loadEngineLibraries()
+		if (loaded) {
+			NativeLibraryLoader.nativeLibraryDirectory()?.let { dir ->
+				nativeSetNativeLibraryDirectory(dir)
+			}
+		}
 		if (!loaded) {
 			LOGGER.warn("Native library chunkup_core not found; engine runs in stub mode")
 		}
@@ -86,6 +91,9 @@ object JniBridge : EngineBridge {
 		val ready = raw[4] as? Boolean ?: false
 		return SectionBuildPayload(kind, vertexData, vertexSegments, visibilityData, ready)
 	}
+
+	@JvmStatic
+	private external fun nativeSetNativeLibraryDirectory(directory: String)
 
 	@JvmStatic
 	private external fun nativeIsAvailable(): Boolean

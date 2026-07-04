@@ -9,6 +9,8 @@
 
 #include <stdint.h>
 
+#include "chunkup_compat.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -66,7 +68,7 @@ uint32_t chunkup_kernel_fluid_bytes(uint32_t height);
 uint32_t chunkup_kernel_light_bytes(uint32_t height);
 uint32_t chunkup_kernel_face_mask_bytes(uint32_t height);
 
-static inline uint32_t chunkup_block_index(int lx, int ly, int lz, uint32_t stride_y) {
+CHUNKUP_FN uint32_t chunkup_block_index(int lx, int ly, int lz, uint32_t stride_y) {
     return (uint32_t)ly * stride_y + (uint32_t)lz * CHUNKUP_CHUNK_SIZE + (uint32_t)lx;
 }
 

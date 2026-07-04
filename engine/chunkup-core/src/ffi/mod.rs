@@ -7,12 +7,26 @@ use jni::JNIEnv;
 
 use crate::section::{self, SectionMeshResult};
 use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, initialize, is_available, shutdown};
+use crate::backend::set_native_library_directory;
 
 static SECTION_BUFFERS: LazyLock<Mutex<HashMap<isize, Vec<u8>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn init_logging() {
     let _ = env_logger::try_init();
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeSetNativeLibraryDirectory(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: jni::objects::JString,
+) {
+    let Ok(dir) = env.get_string(&path) else {
+        return;
+    };
+    let dir: String = dir.into();
+    set_native_library_directory(&dir);
 }
 
 #[no_mangle]

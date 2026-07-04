@@ -20,6 +20,13 @@ object NativeLibraryLoader {
 		"chunkup_core",
 	)
 
+	/** 实际加载 native 库的目录，供 Rust dlopen GPU 后端时使用。 */
+	@Volatile
+	private var nativeLibraryDir: java.nio.file.Path? = null
+
+	fun nativeLibraryDirectory(): String? =
+		nativeLibraryDir?.toAbsolutePath()?.toString()
+
 	fun loadEngineLibraries(): Boolean {
 		if (tryLoadFromLibraryPath()) {
 			return true
@@ -31,11 +38,24 @@ object NativeLibraryLoader {
 
 	private fun tryLoadFromLibraryPath(): Boolean {
 		try {
+			val coreFileName = System.mapLibraryName("chunkup_core")
+			val libPath = System.getProperty("java.library.path")
+				?.split(System.getProperty("path.separator") ?: ";")
+				?.firstOrNull { entry ->
+					Files.isRegularFile(java.nio.file.Path.of(entry, coreFileName))
+				}
+			if (libPath != null) {
+				nativeLibraryDir = java.nio.file.Path.of(libPath)
+			} else {
+				System.getProperty("chunkup.native.dir")?.takeIf { it.isNotEmpty() }?.let { dir ->
+					nativeLibraryDir = java.nio.file.Path.of(dir)
+				}
+			}
 			// java.library.path 场景下需先加载 GPU 库，Rust 侧 dlopen 才能复用已映射模块。
 			tryLoadOptional("chunkup_cuda")
 			tryLoadOptional("chunkup_opencl")
 			System.loadLibrary("chunkup_core")
-			LOGGER.info("Loaded chunkup_core from java.library.path")
+			LOGGER.info("Loaded chunkup_core from java.library.path ({})", nativeLibraryDir)
 			return true
 		} catch (_: UnsatisfiedLinkError) {
 			return false
@@ -43,6 +63,7 @@ object NativeLibraryLoader {
 	}
 
 	private fun loadFromDirectory(dir: Path): Boolean {
+		nativeLibraryDir = dir
 		for (baseName in LIBRARY_BASE_NAMES) {
 			val fileName = System.mapLibraryName(baseName)
 			val path = dir.resolve(fileName)
@@ -57,7 +78,7 @@ object NativeLibraryLoader {
 					LOGGER.warn("Failed to load {}", fileName, e)
 					return false
 				}
-				LOGGER.debug("Optional native library not loaded: {}", fileName)
+				LOGGER.warn("Optional native library not loaded: {} ({})", fileName, e.message)
 			}
 		}
 		return true
@@ -67,8 +88,8 @@ object NativeLibraryLoader {
 		try {
 			System.loadLibrary(baseName)
 			LOGGER.info("Loaded {} from java.library.path", baseName)
-		} catch (_: UnsatisfiedLinkError) {
-			// optional GPU backend
+		} catch (e: UnsatisfiedLinkError) {
+			LOGGER.warn("Optional GPU library {} not loaded from java.library.path: {}", baseName, e.message)
 		}
 	}
 

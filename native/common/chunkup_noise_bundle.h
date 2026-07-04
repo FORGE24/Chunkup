@@ -1,5 +1,6 @@
 #pragma once
 
+#include "chunkup_compat.h"
 #include "chunkup_improved_noise.h"
 #include <stdint.h>
 
@@ -19,17 +20,17 @@ typedef struct ChunkupNoiseBundle {
     ChunkupNoiseTables slots[CHUNKUP_NOISE_SLOT_COUNT];
 } ChunkupNoiseBundle;
 
-static inline uint32_t chunkup_noise_salt(uint32_t world_seed, uint32_t salt) {
+CHUNKUP_FN uint32_t chunkup_noise_salt(uint32_t world_seed, uint32_t salt) {
     return world_seed ^ (salt * 0x9E3779B9u) ^ 0xA341316Cu;
 }
 
-static inline void chunkup_noise_init_bundle(ChunkupNoiseBundle* bundle, uint32_t world_seed) {
+CHUNKUP_FN void chunkup_noise_init_bundle(ChunkupNoiseBundle* bundle, uint32_t world_seed) {
     for (uint32_t i = 0; i < CHUNKUP_NOISE_SLOT_COUNT; ++i) {
         chunkup_noise_init_tables(&bundle->slots[i], chunkup_noise_salt(world_seed, i + 1u));
     }
 }
 
-static inline const ChunkupNoiseTables* chunkup_noise_slot(
+CHUNKUP_FN const ChunkupNoiseTables* chunkup_noise_slot(
     const ChunkupNoiseBundle* bundle,
     uint32_t slot
 ) {
