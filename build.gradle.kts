@@ -223,8 +223,20 @@ tasks.register<Copy>("stageNativeForJar") {
 	duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }
 
+// Cross-platform: embed pre-built Windows DLLs alongside CI-built Linux .so
+tasks.register<Copy>("stageWindowsNativeForJar") {
+	group = "chunkup"
+	description = "Copy pre-built Windows DLLs for cross-platform jar"
+	dependsOn("copyNativeLibraries")
+	from(layout.projectDirectory.dir("native/prebuilt/windows-x86_64")) {
+		include("*.dll")
+	}
+	into(layout.buildDirectory.dir("generated/native/windows-x86_64"))
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 tasks.named<ProcessResources>("processResources") {
-	dependsOn("stageNativeForJar")
+	dependsOn("stageNativeForJar", "stageWindowsNativeForJar")
 	from(layout.buildDirectory.dir("generated/native")) {
 		include("**/*")
 		into("assets/chunkup/native")
