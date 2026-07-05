@@ -15,6 +15,9 @@ OUT = ROOT / "native" / "common" / "chunkup_overworld_router.h"
 def load_json(rel: str) -> dict:
     path = EXTRACTED / rel
     if not path.exists():
+        if OUT.exists():
+            print(f"skipping — {OUT} already exists and {path} not found (pre-generated header)")
+            sys.exit(0)
         raise FileNotFoundError(f"missing {path} — run jar extract first")
     return json.loads(path.read_text(encoding="utf-8"))
 
