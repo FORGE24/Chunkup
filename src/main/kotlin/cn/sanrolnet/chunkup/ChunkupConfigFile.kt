@@ -26,11 +26,17 @@ object ChunkupConfigFile {
 	@JvmStatic
 	fun currentSnapshot(): ChunkupSettingsSnapshot {
 		return ChunkupSettingsSnapshot().apply {
+			instantLoad = ChunkupConfig.instantLoad
+			gpuWorldGen = ChunkupConfig.gpuWorldGen
+			gpuDensityBatch = ChunkupConfig.gpuDensityBatch
+			forceGpu = ChunkupConfig.forceGpu
+			gpuChunkLoadOnGenerated = ChunkupConfig.gpuChunkLoadOnGenerated
 			gpuChunkLoadOnLoaded = ChunkupConfig.gpuChunkLoadOnLoaded
 			gpuSkylightApply = ChunkupConfig.gpuSkylightApply
 			gpuChunkLoadSummaryInterval = ChunkupConfig.gpuChunkLoadSummaryInterval
 			gpuChunkLoadBatchSize = ChunkupConfig.gpuChunkLoadBatchSize
-			gpuSections = System.getProperty("chunkup.gpuSections", "true").toBoolean()
+			gpuSections = System.getProperty("chunkup.gpuSections", "false").toBoolean()
+			f3Debug = ChunkupConfig.f3Debug
 			nativeDir = System.getProperty("chunkup.native.dir", "")
 			rustLogLevel = System.getenv("RUST_LOG") ?: "warn,chunkup_core=warn"
 		}
@@ -38,11 +44,17 @@ object ChunkupConfigFile {
 
 	@JvmStatic
 	fun applyRuntime(snapshot: ChunkupSettingsSnapshot) {
+		System.setProperty("chunkup.instantLoad", snapshot.instantLoad.toString())
+		System.setProperty("chunkup.gpuWorldGen", snapshot.gpuWorldGen.toString())
+		System.setProperty("chunkup.gpuDensityBatch", snapshot.gpuDensityBatch.toString())
+		System.setProperty("chunkup.forceGpu", snapshot.forceGpu.toString())
+		System.setProperty("chunkup.gpuChunkLoad.generated", snapshot.gpuChunkLoadOnGenerated.toString())
 		System.setProperty("chunkup.gpuChunkLoad.loaded", snapshot.gpuChunkLoadOnLoaded.toString())
 		System.setProperty("chunkup.gpuSkylightApply", snapshot.gpuSkylightApply.toString())
 		System.setProperty("chunkup.gpuChunkLoad.summaryInterval", snapshot.gpuChunkLoadSummaryInterval.toString())
 		System.setProperty("chunkup.gpuChunkLoad.batchSize", snapshot.gpuChunkLoadBatchSize.toString())
 		System.setProperty("chunkup.gpuSections", snapshot.gpuSections.toString())
+		System.setProperty("chunkup.f3Debug", snapshot.f3Debug.toString())
 		if (snapshot.nativeDir.isNotBlank()) {
 			System.setProperty("chunkup.native.dir", snapshot.nativeDir)
 		}
@@ -107,11 +119,17 @@ object ChunkupConfigFile {
 	private fun applyJson(root: JsonObject, path: Path) {
 		var applied = 0
 
+		applied += applyBoolean(root, "instantLoad", "chunkup.instantLoad")
+		applied += applyBoolean(root, "gpuWorldGen", "chunkup.gpuWorldGen")
+		applied += applyBoolean(root, "gpuDensityBatch", "chunkup.gpuDensityBatch")
+		applied += applyBoolean(root, "forceGpu", "chunkup.forceGpu")
+		applied += applyBoolean(root, "gpuChunkLoadOnGenerated", "chunkup.gpuChunkLoad.generated")
 		applied += applyBoolean(root, "gpuChunkLoadOnLoaded", "chunkup.gpuChunkLoad.loaded")
 		applied += applyBoolean(root, "gpuSkylightApply", "chunkup.gpuSkylightApply")
 		applied += applyInt(root, "gpuChunkLoadSummaryInterval", "chunkup.gpuChunkLoad.summaryInterval")
 		applied += applyInt(root, "gpuChunkLoadBatchSize", "chunkup.gpuChunkLoad.batchSize")
 		applied += applyBoolean(root, "gpuSections", "chunkup.gpuSections")
+		applied += applyBoolean(root, "f3Debug", "chunkup.f3Debug")
 		applied += applyString(root, "nativeDir", "chunkup.native.dir")
 
 		if (applied > 0) {

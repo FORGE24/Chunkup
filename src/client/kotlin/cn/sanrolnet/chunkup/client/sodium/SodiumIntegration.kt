@@ -7,10 +7,11 @@ object SodiumIntegration {
 		get() = FabricLoader.getInstance().isModLoaded("sodium")
 
 	/**
-	 * 启用 Chunkup section mesh 构建（完整三 pass，与 Sodium 顶点格式兼容）。
-	 * 可通过 `-Dchunkup.gpuSections=false` 回退 Sodium 原生 meshing。
+	 * Rust section 快路径（仅 AIR / uniform opaque shell）。
+	 * 默认 false：复杂 section 一律由 Sodium 原生 worker meshing，避免线程池枯竭。
+	 * 可通过 `-Dchunkup.gpuSections=true` 开启快路径。
 	 */
 	@JvmStatic
 	val useGpuSectionMeshes: Boolean
-		get() = System.getProperty("chunkup.gpuSections", "true").toBoolean()
+		get() = System.getProperty("chunkup.gpuSections", "false").toBoolean()
 }

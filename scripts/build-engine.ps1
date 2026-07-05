@@ -192,6 +192,14 @@ function Build-CudaWithNvcc($Root, $OutDir) {
 
 function Invoke-CMakeBuild($Name, $SourceDir, $BuildDir, [string[]]$ExtraArgs) {
     Write-BuildLog "==> Building $Name backend"
+    $cacheFile = Join-Path $BuildDir "CMakeCache.txt"
+    if (Test-Path $cacheFile) {
+        $cacheText = Get-Content $cacheFile -Raw -ErrorAction SilentlyContinue
+        if ($cacheText -match '/run/media/' -or $cacheText -notmatch [regex]::Escape($SourceDir) -or $cacheText -match 'CMake Error') {
+            Write-BuildLog "==> ${Name}: stale CMake cache detected, cleaning $BuildDir"
+            Remove-Item $BuildDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
     New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
     $configureArgs = @("-S", $SourceDir, "-B", $BuildDir) + $ExtraArgs
@@ -278,6 +286,20 @@ if ($IsWindows -or ($env:OS -match "Windows")) {
 
 if (Get-Command cmake -ErrorAction SilentlyContinue) {
     $openclArgs = @("-DCMAKE_BUILD_TYPE=Release")
+    if ($IsWindows -or ($env:OS -match "Windows")) {
+        $cudaRoot = $env:CUDA_PATH
+        if (-not $cudaRoot) {
+            $cudaRoot = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8"
+        }
+        $openclInc = Join-Path $cudaRoot "include"
+        $openclLib = Join-Path $cudaRoot "lib\x64\OpenCL.lib"
+        if ((Test-Path $openclInc) -and (Test-Path $openclLib)) {
+            $openclArgs += @(
+                "-DOpenCL_INCLUDE_DIR=$openclInc",
+                "-DOpenCL_LIBRARY=$openclLib"
+            )
+        }
+    }
     if ([bool](Get-Command ninja -ErrorAction SilentlyContinue)) {
         $openclArgs = @("-G", "Ninja") + $openclArgs
     }

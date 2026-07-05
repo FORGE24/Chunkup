@@ -62,6 +62,17 @@ interface EngineBridge {
 		worldSeed: Long,
 	): ChunkDensityFill? = null
 
+	/**
+	 * 批量 NOISE_FILL：一次 CUDA dispatch 生成多个 chunk 密度。
+	 */
+	fun generateChunkDensityBatch(
+		chunkXs: IntArray,
+		chunkZs: IntArray,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+	): List<ChunkDensityFill?>? = null
+
 	/** Section 网格构建；无可用结果时返回 null。 */
 	fun onSectionBuild(sectionX: Int, sectionY: Int, sectionZ: Int, blockStates: ByteArray): cn.sanrolnet.chunkup.render.SectionBuildPayload? = null
 

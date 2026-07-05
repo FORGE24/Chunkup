@@ -2,13 +2,37 @@ cmake_minimum_required(VERSION 3.18)
 project(chunkup_opencl LANGUAGES C CXX)
 
 # ── OpenCL discovery (Linux + Windows) ─────────────────────────────
-# On Linux:
-#   RHEL/Fedora:     dnf install ocl-icd-devel  → /usr/include/CL
-#   Debian/Ubuntu:   apt install ocl-icd-opencl-dev → /usr/include/CL
-#   Arch/Manjaro:    pacman -S opencl-headers ocl-icd
-#   Alpine:          apk add opencl-headers opencl-icd-loader-dev
-# On Windows: CUDA SDK includes OpenCL headers
-find_package(OpenCL QUIET)
+# CMake 4.4+ FindOpenCL 的 CheckSymbolExists 在部分 Windows 环境会失败；
+# Windows 上优先手动解析 CUDA SDK 自带的 OpenCL 头文件与库。
+if(WIN32)
+    if(DEFINED ENV{CUDA_PATH})
+        set(_chunkup_cuda_root "$ENV{CUDA_PATH}")
+    else()
+        set(_chunkup_cuda_root "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8")
+    endif()
+    if(NOT OpenCL_INCLUDE_DIR)
+        find_path(OpenCL_INCLUDE_DIR CL/cl.h
+            PATHS "${_chunkup_cuda_root}/include"
+            NO_DEFAULT_PATH
+        )
+    endif()
+    if(NOT OpenCL_LIBRARY)
+        find_library(OpenCL_LIBRARY NAMES OpenCL
+            PATHS "${_chunkup_cuda_root}/lib/x64"
+            NO_DEFAULT_PATH
+        )
+    endif()
+    if(OpenCL_INCLUDE_DIR AND OpenCL_LIBRARY)
+        set(OpenCL_FOUND TRUE)
+        set(OpenCL_INCLUDE_DIRS ${OpenCL_INCLUDE_DIR})
+        set(OpenCL_LIBRARIES ${OpenCL_LIBRARY})
+        message(STATUS "OpenCL found via CUDA SDK: ${OpenCL_INCLUDE_DIR}")
+    endif()
+endif()
+
+if(NOT OpenCL_FOUND)
+    find_package(OpenCL QUIET)
+endif()
 if(NOT OpenCL_FOUND)
     # Manual fallback on Linux — headers are usually in /usr/include/CL
     find_path(OPENCL_INCLUDE_DIR CL/cl.h

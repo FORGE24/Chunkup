@@ -101,6 +101,38 @@ inline float chunkup_density_at_tables(const ChunkupNoiseTables* t, int wx, int 
 
 inline int chunkup_is_solid(float density) { return density > 0.0f; }
 
+inline int chunkup_skylight_opacity(float density) {
+    if (density <= 0.0f) {
+        return 0;
+    }
+    if (density >= 0.99f) {
+        return 15;
+    }
+    int opacity = (int)(density * 15.0f + 0.5f);
+    if (opacity < 1) {
+        return 1;
+    }
+    if (opacity > 15) {
+        return 15;
+    }
+    return opacity;
+}
+
+inline int chunkup_skylight_propagate(int light, float density) {
+    const int opacity = chunkup_skylight_opacity(density);
+    if (opacity >= 15) {
+        return 0;
+    }
+    if (opacity > 0) {
+        const int next = light - opacity;
+        return next < 0 ? 0 : next;
+    }
+    if (light <= 0) {
+        return 0;
+    }
+    return light - 1;
+}
+
 inline uint chunkup_block_index(int lx, int ly, int lz, uint stride_y) {
     return (uint)ly * stride_y + (uint)lz * CHUNKUP_CHUNK_SIZE + (uint)lx;
 }
@@ -143,13 +175,12 @@ __kernel void chunkup_kernel_skylight(
     int light = 15;
     for (int ly = height - 1; ly >= 0; --ly) {
         const uint idx = chunkup_block_index(lx, ly, lz, stride_y);
-        if (chunkup_is_solid(density[idx])) {
+        const float sample = density[idx];
+        if (chunkup_skylight_opacity(sample) >= 15) {
             light = 0;
         }
         skylight[idx] = (uchar)light;
-        if (light > 0) {
-            light -= 1;
-        }
+        light = chunkup_skylight_propagate(light, sample);
     }
 }
 
@@ -237,13 +268,12 @@ __kernel void chunkup_kernel_skylight_batch(
     int light = 15;
     for (int ly = height - 1; ly >= 0; --ly) {
         const uint idx = chunkup_block_index(lx, ly, lz, stride_y);
-        if (chunkup_is_solid(chunk_density[idx])) {
+        const float sample = chunk_density[idx];
+        if (chunkup_skylight_opacity(sample) >= 15) {
             light = 0;
         }
         chunk_light[idx] = (uchar)light;
-        if (light > 0) {
-            light -= 1;
-        }
+        light = chunkup_skylight_propagate(light, sample);
     }
 }
 

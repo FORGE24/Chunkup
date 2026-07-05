@@ -216,7 +216,7 @@ if (-not (Test-Path $WinDeployQt)) {
     throw "windeployqt not found: $WinDeployQt"
 }
 
-& $WinDeployQt --no-translations --no-compiler-runtime --dir $NativeOut $DllPath
+    & $WinDeployQt --no-translations --dir $NativeOut $DllPath
 Write-Host "Deployed Qt runtime to $NativeOut" -ForegroundColor Green
 
 if ($selectedKit.Toolchain -eq "MinGW") {

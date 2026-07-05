@@ -133,4 +133,14 @@ extern "C" {
         blocks_per_chunk: u32,
         result: *mut KernelResult,
     ) -> c_int;
+    pub fn chunkup_kernel_dispatch_density_batch(
+        template_job: *const KernelJob,
+        batch_count: i32,
+        chunk_xs: *const i32,
+        chunk_zs: *const i32,
+        host_density: *mut f32,
+        host_fluid: *mut u8,
+        blocks_per_chunk: u32,
+        result: *mut KernelResult,
+    ) -> c_int;
 }

@@ -20,11 +20,13 @@ extern "C" {
 
 typedef struct ChunkupSettingsNative {
     int32_t version;
+    int32_t force_gpu;
     int32_t gpu_chunk_load_on_loaded;
     int32_t gpu_skylight_apply;
     int32_t gpu_chunk_load_summary_interval;
     int32_t gpu_chunk_load_batch_size;
     int32_t gpu_sections;
+    int32_t f3_debug;
     char native_dir[CHUNKUP_SETTINGS_PATH_MAX];
     char rust_log_level[128];
 } ChunkupSettingsNative;

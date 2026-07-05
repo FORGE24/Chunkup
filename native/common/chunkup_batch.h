@@ -20,6 +20,18 @@ int chunkup_kernel_dispatch_cpu_batch(
     ChunkupKernelResult* result
 );
 
+/** 批量 NOISE_FILL（CPU 回退路径）。 */
+int chunkup_kernel_dispatch_density_batch(
+    const ChunkupKernelJob* template_job,
+    int batch_count,
+    const int32_t* chunk_xs,
+    const int32_t* chunk_zs,
+    float* host_density,
+    uint8_t* host_fluid,
+    uint32_t blocks_per_chunk,
+    ChunkupKernelResult* result
+);
+
 #ifdef __cplusplus
 }
 #endif

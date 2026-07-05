@@ -1,6 +1,7 @@
 package cn.sanrolnet.chunkup.minecraft.generation
 
 import cn.sanrolnet.chunkup.Chunkup
+import cn.sanrolnet.chunkup.ChunkupConfig
 import cn.sanrolnet.chunkup.bridge.EngineBridge
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.chunk.ChunkAccess
@@ -43,11 +44,16 @@ object ChunkGenerationHooks {
 
 	@JvmStatic
 	fun dispatch(context: ChunkGenerationContext) {
-		val bridge = engine
-		if (bridge != null && ChunkLoadPipeline.enqueue(context, bridge)) {
+		if (ChunkupConfig.instantLoad) {
 			return
 		}
-		bridge?.onChunkGeneration(context.stage, context.chunkX, context.chunkZ)
+
+		val bridge = engine
+		if (bridge != null && ChunkLoadPipeline.enqueue(context, bridge)) {
+			// GPU batch 异步入队；不阻塞区块管线
+		} else {
+			bridge?.onChunkGeneration(context.stage, context.chunkX, context.chunkZ)
+		}
 		notify(context)
 	}
 

@@ -6,6 +6,21 @@ package cn.sanrolnet.chunkup.config
  */
 class ChunkupSettingsSnapshot {
 	@JvmField
+	var instantLoad: Boolean = true
+
+	@JvmField
+	var gpuWorldGen: Boolean = false
+
+	@JvmField
+	var gpuDensityBatch: Boolean = true
+
+	@JvmField
+	var forceGpu: Boolean = true
+
+	@JvmField
+	var gpuChunkLoadOnGenerated: Boolean = false
+
+	@JvmField
 	var gpuChunkLoadOnLoaded: Boolean = false
 
 	@JvmField
@@ -15,10 +30,13 @@ class ChunkupSettingsSnapshot {
 	var gpuChunkLoadSummaryInterval: Int = 256
 
 	@JvmField
-	var gpuChunkLoadBatchSize: Int = 32
+	var gpuChunkLoadBatchSize: Int = 64
 
 	@JvmField
-	var gpuSections: Boolean = true
+	var gpuSections: Boolean = false
+
+	@JvmField
+	var f3Debug: Boolean = true
 
 	@JvmField
 	var nativeDir: String = ""

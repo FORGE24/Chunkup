@@ -1,6 +1,7 @@
 package cn.sanrolnet.chunkup.bridge
 
 import cn.sanrolnet.chunkup.Chunkup
+import cn.sanrolnet.chunkup.ChunkupConfig
 import cn.sanrolnet.chunkup.minecraft.generation.ChunkDensityFill
 import cn.sanrolnet.chunkup.minecraft.generation.ChunkLoadResult
 import cn.sanrolnet.chunkup.render.SectionBuildPayload
@@ -34,7 +35,7 @@ object JniBridge : EngineBridge {
 
 	override fun initialize(): Boolean {
 		if (!loaded) return false
-		return nativeInitialize()
+		return nativeInitialize(ChunkupConfig.forceGpu)
 	}
 
 	override fun activeComputeBackend(): String {
@@ -45,6 +46,25 @@ object JniBridge : EngineBridge {
 	override fun shutdown() {
 		if (!loaded) return
 		nativeShutdown()
+	}
+
+	@JvmStatic
+	fun setForceGpu(enabled: Boolean) {
+		if (!loaded) return
+		nativeSetForceGpu(enabled)
+	}
+
+	@JvmStatic
+	fun debugStatsLines(): Array<String> {
+		if (!loaded) return emptyArray()
+		return try {
+			nativeGetDebugStats() ?: emptyArray()
+		} catch (e: UnsatisfiedLinkError) {
+			LOGGER.warn(
+				"nativeGetDebugStats unavailable; reinstall the latest chunkupRelease JAR to refresh embedded natives",
+			)
+			emptyArray()
+		}
 	}
 
 	override fun onChunkGeneration(
@@ -123,6 +143,21 @@ object JniBridge : EngineBridge {
 		return decodeChunkDensityFill(raw)
 	}
 
+	override fun generateChunkDensityBatch(
+		chunkXs: IntArray,
+		chunkZs: IntArray,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+	): List<ChunkDensityFill?>? {
+		if (!loaded || chunkXs.isEmpty() || chunkXs.size != chunkZs.size) return null
+		val raw = nativeGenerateChunkDensityBatch(chunkXs, chunkZs, minY, height, worldSeed) ?: return null
+		if (raw.size != chunkXs.size) return null
+		return raw.map { element ->
+			if (element == null) null else decodeChunkDensityFill(element)
+		}
+	}
+
 	private fun decodeChunkDensityFill(raw: Any): ChunkDensityFill? {
 		if (raw !is Array<*>) return null
 		if (raw.size < 2) return null
@@ -160,7 +195,13 @@ object JniBridge : EngineBridge {
 	private external fun nativeIsAvailable(): Boolean
 
 	@JvmStatic
-	private external fun nativeInitialize(): Boolean
+	private external fun nativeInitialize(forceGpu: Boolean): Boolean
+
+	@JvmStatic
+	private external fun nativeSetForceGpu(forceGpu: Boolean)
+
+	@JvmStatic
+	private external fun nativeGetDebugStats(): Array<String>?
 
 	@JvmStatic
 	private external fun nativeGetActiveBackend(): String
@@ -201,6 +242,15 @@ object JniBridge : EngineBridge {
 		height: Int,
 		worldSeed: Long,
 	): Any?
+
+	@JvmStatic
+	private external fun nativeGenerateChunkDensityBatch(
+		chunkXs: IntArray,
+		chunkZs: IntArray,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+	): Array<Any?>?
 
 	@JvmStatic
 	private external fun nativeOnSectionBuild(

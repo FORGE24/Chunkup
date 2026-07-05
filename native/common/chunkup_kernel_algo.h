@@ -38,6 +38,39 @@ CHUNKUP_HD int chunkup_is_solid(float density) {
     return density > 0.0f;
 }
 
+/** 天空光：density<=0 透明；>=0.99 完全不透光；中间值按 opacity/15 编码（见 ChunkDensityReader）。 */
+CHUNKUP_HD int chunkup_skylight_opacity(float density) {
+    if (density <= 0.0f) {
+        return 0;
+    }
+    if (density >= 0.99f) {
+        return 15;
+    }
+    int opacity = (int)(density * 15.0f + 0.5f);
+    if (opacity < 1) {
+        return 1;
+    }
+    if (opacity > 15) {
+        return 15;
+    }
+    return opacity;
+}
+
+CHUNKUP_HD int chunkup_skylight_propagate(int light, float density) {
+    const int opacity = chunkup_skylight_opacity(density);
+    if (opacity >= 15) {
+        return 0;
+    }
+    if (opacity > 0) {
+        const int next = light - opacity;
+        return next < 0 ? 0 : next;
+    }
+    if (light <= 0) {
+        return 0;
+    }
+    return light - 1;
+}
+
 CHUNKUP_HD float chunkup_density_sample(
     const float* density,
     int lx,

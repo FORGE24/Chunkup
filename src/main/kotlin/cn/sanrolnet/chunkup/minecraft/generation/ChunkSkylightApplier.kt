@@ -1,5 +1,6 @@
 package cn.sanrolnet.chunkup.minecraft.generation
 
+import cn.sanrolnet.chunkup.debug.ChunkupDebugProbe
 import net.minecraft.core.SectionPos
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.LightLayer
@@ -8,6 +9,9 @@ import net.minecraft.world.level.chunk.DataLayer
 
 /**
  * 将 GPU 计算的天空光写回 [ServerLevel] 光照引擎。
+ *
+ * 仅在 LOADED 阶段且 [cn.sanrolnet.chunkup.ChunkupConfig.gpuSkylightApply] 为 true 时调用。
+ * GPU 天空光为简化列传播，与原版不完全一致；默认应关闭写回，由原版光照引擎负责。
  */
 object ChunkSkylightApplier {
 	private const val CHUNK_SIZE = 16
@@ -21,6 +25,7 @@ object ChunkSkylightApplier {
 			"skylight size ${skylight.size} != expected $expected (height=$height)"
 		}
 
+		val started = System.nanoTime()
 		val lightEngine = level.lightEngine
 		val minSection = chunk.getSectionIndex(minY)
 		val maxSection = chunk.getSectionIndex(minY + height - 1)
@@ -56,5 +61,11 @@ object ChunkSkylightApplier {
 			val sectionPos = SectionPos.of(chunk.pos, sectionY)
 			lightEngine.queueSectionData(LightLayer.SKY, sectionPos, layer)
 		}
+
+		ChunkupDebugProbe.record(
+			"skylight.apply",
+			System.nanoTime() - started,
+			"chunk=[${chunk.pos.x}, ${chunk.pos.z}]",
+		)
 	}
 }

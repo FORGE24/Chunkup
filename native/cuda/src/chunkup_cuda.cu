@@ -77,6 +77,71 @@ __global__ void chunkup_kernel_density_fill(
     }
 }
 
+/**
+ * 批量 NOISE_FILL：grid.z = batch_count，每 chunk 一块 (16×16) 线程。
+ */
+__global__ void chunkup_kernel_density_fill_batch(
+    const int32_t* chunk_xs,
+    const int32_t* chunk_zs,
+    int min_y,
+    int height,
+    uint32_t stride_y,
+    uint32_t blocks_per_chunk,
+    float* density,
+    uint8_t* fluid,
+    int batch_count
+) {
+    const int chunk_idx = (int)blockIdx.z;
+    if (chunk_idx >= batch_count) {
+        return;
+    }
+
+    __shared__ ChunkupCellCache2D cell_cache;
+
+    const int base_x = chunk_xs[chunk_idx] * (int)CHUNKUP_CHUNK_SIZE;
+    const int base_z = chunk_zs[chunk_idx] * (int)CHUNKUP_CHUNK_SIZE;
+    float* chunk_density = density + (size_t)chunk_idx * blocks_per_chunk;
+    uint8_t* chunk_fluid = fluid ? fluid + (size_t)chunk_idx * blocks_per_chunk : NULL;
+
+    const int tid = (int)(threadIdx.y * blockDim.x + threadIdx.x);
+    if (tid < 25) {
+        const int ci = tid / 5;
+        const int cj = tid % 5;
+        const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
+        const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
+        cell_cache.samples[ci][cj] = chunkup_router_sample_2d(&chunkup_device_bundle, wx, wz);
+    }
+    __syncthreads();
+
+    const int lx = (int)threadIdx.x;
+    const int lz = (int)threadIdx.y;
+    if (lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE) {
+        return;
+    }
+
+    for (int ly = 0; ly < height; ++ly) {
+        const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
+        const float wx = (float)(base_x + lx);
+        const float wy = (float)(min_y + ly);
+        const float wz = (float)(base_z + lz);
+
+        const float d = chunkup_cell_interpolated_density(
+            &chunkup_device_bundle,
+            &cell_cache,
+            base_x,
+            base_z,
+            min_y,
+            lx,
+            ly,
+            lz
+        );
+        chunk_density[idx] = d;
+        if (chunk_fluid) {
+            chunk_fluid[idx] = chunkup_router_aquifer_fluid(&chunkup_device_bundle, wx, wy, wz, d);
+        }
+    }
+}
+
 __global__ void chunkup_kernel_skylight(
     const float* density,
     uint8_t* skylight,
@@ -93,13 +158,12 @@ __global__ void chunkup_kernel_skylight(
     int light = 15;
     for (int ly = height - 1; ly >= 0; --ly) {
         const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
-        if (chunkup_is_solid(density[idx])) {
+        const float sample = density[idx];
+        if (chunkup_skylight_opacity(sample) >= 15) {
             light = 0;
         }
         skylight[idx] = (uint8_t)light;
-        if (light > 0) {
-            light -= 1;
-        }
+        light = chunkup_skylight_propagate(light, sample);
     }
 }
 
@@ -170,13 +234,12 @@ __global__ void chunkup_kernel_skylight_batch(
     int light = 15;
     for (int ly = height - 1; ly >= 0; --ly) {
         const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
-        if (chunkup_is_solid(chunk_density[idx])) {
+        const float sample = chunk_density[idx];
+        if (chunkup_skylight_opacity(sample) >= 15) {
             light = 0;
         }
         chunk_light[idx] = (uint8_t)light;
-        if (light > 0) {
-            light -= 1;
-        }
+        light = chunkup_skylight_propagate(light, sample);
     }
 }
 
@@ -570,5 +633,107 @@ extern "C" CHUNKUP_API int chunkup_cuda_kernel_dispatch_batch(
     }
 
     chunkup_cuda_free_buffers(d_density, d_skylight, NULL, NULL, d_face_mask);
+    return cudaGetLastError() == cudaSuccess ? 0 : -10;
+}
+
+extern "C" CHUNKUP_API int chunkup_cuda_density_fill_batch(
+    const ChunkupKernelJob* template_job,
+    int batch_count,
+    const int32_t* chunk_xs,
+    const int32_t* chunk_zs,
+    float* host_density,
+    uint8_t* host_fluid,
+    uint32_t blocks_per_chunk,
+    ChunkupKernelResult* result
+) {
+    if (!template_job || batch_count <= 0 || !chunk_xs || !chunk_zs || !host_density || !result || blocks_per_chunk == 0u) {
+        return -1;
+    }
+
+    result->status = 0;
+    result->ops_completed = 0u;
+
+    const size_t density_bytes = (size_t)batch_count * blocks_per_chunk * sizeof(float);
+    const size_t light_bytes = (size_t)batch_count * blocks_per_chunk;
+
+    float* d_density = NULL;
+    uint8_t* d_fluid = NULL;
+    int32_t* d_chunk_xs = NULL;
+    int32_t* d_chunk_zs = NULL;
+
+    if (chunkup_cuda_check(cudaMalloc(&d_density, density_bytes)) != 0) {
+        return -10;
+    }
+    if (host_fluid) {
+        if (chunkup_cuda_check(cudaMalloc(&d_fluid, light_bytes)) != 0) {
+            chunkup_cuda_free_buffers(d_density, d_fluid, NULL, NULL, NULL);
+            return -10;
+        }
+    }
+    if (chunkup_cuda_check(cudaMalloc(&d_chunk_xs, (size_t)batch_count * sizeof(int32_t))) != 0 ||
+        chunkup_cuda_check(cudaMalloc(&d_chunk_zs, (size_t)batch_count * sizeof(int32_t))) != 0) {
+        chunkup_cuda_free_buffers(d_density, d_fluid, NULL, NULL, NULL);
+        if (d_chunk_xs) cudaFree(d_chunk_xs);
+        if (d_chunk_zs) cudaFree(d_chunk_zs);
+        return -10;
+    }
+
+    if (chunkup_cuda_check(cudaMemcpy(d_chunk_xs, chunk_xs, (size_t)batch_count * sizeof(int32_t), cudaMemcpyHostToDevice)) != 0 ||
+        chunkup_cuda_check(cudaMemcpy(d_chunk_zs, chunk_zs, (size_t)batch_count * sizeof(int32_t), cudaMemcpyHostToDevice)) != 0) {
+        chunkup_cuda_free_buffers(d_density, d_fluid, NULL, NULL, NULL);
+        cudaFree(d_chunk_xs);
+        cudaFree(d_chunk_zs);
+        return -10;
+    }
+
+    ChunkupNoiseBundle host_bundle;
+    chunkup_noise_init_bundle(&host_bundle, template_job->seed);
+    if (chunkup_cuda_check(cudaMemcpyToSymbol(chunkup_device_bundle, &host_bundle, sizeof(host_bundle))) != 0) {
+        chunkup_cuda_free_buffers(d_density, d_fluid, NULL, NULL, NULL);
+        cudaFree(d_chunk_xs);
+        cudaFree(d_chunk_zs);
+        return -10;
+    }
+
+    const dim3 block(16, 16, 1);
+    const dim3 grid(1, 1, (unsigned int)batch_count);
+    chunkup_kernel_density_fill_batch<<<grid, block>>>(
+        d_chunk_xs,
+        d_chunk_zs,
+        template_job->min_y,
+        template_job->height,
+        CHUNKUP_BLOCKS_PER_SECTION,
+        blocks_per_chunk,
+        d_density,
+        d_fluid,
+        batch_count
+    );
+    if (chunkup_cuda_check(cudaGetLastError()) != 0 ||
+        chunkup_cuda_check(cudaDeviceSynchronize()) != 0) {
+        chunkup_cuda_free_buffers(d_density, d_fluid, NULL, NULL, NULL);
+        cudaFree(d_chunk_xs);
+        cudaFree(d_chunk_zs);
+        return -10;
+    }
+
+    if (chunkup_cuda_check(cudaMemcpy(host_density, d_density, density_bytes, cudaMemcpyDeviceToHost)) != 0) {
+        chunkup_cuda_free_buffers(d_density, d_fluid, NULL, NULL, NULL);
+        cudaFree(d_chunk_xs);
+        cudaFree(d_chunk_zs);
+        return -10;
+    }
+    if (host_fluid && d_fluid) {
+        if (chunkup_cuda_check(cudaMemcpy(host_fluid, d_fluid, light_bytes, cudaMemcpyDeviceToHost)) != 0) {
+            chunkup_cuda_free_buffers(d_density, d_fluid, NULL, NULL, NULL);
+            cudaFree(d_chunk_xs);
+            cudaFree(d_chunk_zs);
+            return -10;
+        }
+    }
+
+    cudaFree(d_chunk_xs);
+    cudaFree(d_chunk_zs);
+    chunkup_cuda_free_buffers(d_density, d_fluid, NULL, NULL, NULL);
+    result->ops_completed |= CHUNKUP_OP_NOISE_FILL;
     return cudaGetLastError() == cudaSuccess ? 0 : -10;
 }

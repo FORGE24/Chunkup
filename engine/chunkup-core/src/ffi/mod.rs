@@ -6,7 +6,7 @@ use jni::sys::{jboolean, jbyte, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 use crate::section::{self, SectionMeshResult};
-use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, initialize, is_available, process_chunk_load, process_chunk_load_batch, shutdown};
+use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, generate_chunk_density_batch, initialize, is_available, process_chunk_load, process_chunk_load_batch, shutdown};
 use crate::backend::set_native_library_directory;
 
 static SECTION_BUFFERS: LazyLock<Mutex<HashMap<isize, Vec<u8>>>> =
@@ -59,14 +59,46 @@ pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGetActiv
 pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeInitialize(
     mut env: JNIEnv,
     _class: JClass,
+    force_gpu: jboolean,
 ) -> jboolean {
     init_logging();
+    crate::set_force_gpu(force_gpu != JNI_FALSE);
     if initialize() {
         JNI_TRUE
     } else {
         let _ = env.throw_new("java/lang/RuntimeException", "chunkup engine init failed");
         JNI_FALSE
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeSetForceGpu(
+    _env: JNIEnv,
+    _class: JClass,
+    force_gpu: jboolean,
+) {
+    crate::set_force_gpu(force_gpu != JNI_FALSE);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGetDebugStats(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jni::sys::jobject {
+    let lines = crate::debug_stats_lines();
+    let array = match env.new_object_array(lines.len() as i32, "java/lang/String", JObject::null()) {
+        Ok(arr) => arr,
+        Err(_) => return JObject::null().into_raw(),
+    };
+    for (index, line) in lines.into_iter().enumerate() {
+        let Ok(jline) = env.new_string(line) else {
+            return JObject::null().into_raw();
+        };
+        if env.set_object_array_element(&array, index as i32, jline).is_err() {
+            return JObject::null().into_raw();
+        }
+    }
+    array.into_raw()
 }
 
 #[no_mangle]
@@ -143,6 +175,77 @@ pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGenerate
     }
 
     obj_array.into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGenerateChunkDensityBatch(
+    mut env: JNIEnv,
+    _class: JClass,
+    chunk_xs: jni::objects::JIntArray,
+    chunk_zs: jni::objects::JIntArray,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+) -> jni::sys::jobject {
+    let xs = match read_int_array(&mut env, &chunk_xs) {
+        Ok(data) => data,
+        Err(_) => return JObject::null().into_raw(),
+    };
+    let zs = match read_int_array(&mut env, &chunk_zs) {
+        Ok(data) => data,
+        Err(_) => return JObject::null().into_raw(),
+    };
+    if xs.is_empty() || xs.len() != zs.len() {
+        return JObject::null().into_raw();
+    }
+
+    let chunk_coords: Vec<(i32, i32)> = xs.into_iter().zip(zs).collect();
+    let Some(outputs) = generate_chunk_density_batch(&chunk_coords, min_y, height, world_seed) else {
+        return JObject::null().into_raw();
+    };
+
+    let outer = match env.new_object_array(outputs.len() as i32, "java/lang/Object", JObject::null()) {
+        Ok(arr) => arr,
+        Err(_) => return JObject::null().into_raw(),
+    };
+
+    for (index, (density, fluid)) in outputs.into_iter().enumerate() {
+        let len = density.len();
+        if len == 0 || fluid.len() != len {
+            return JObject::null().into_raw();
+        }
+
+        let Ok(density_array) = env.new_float_array(len as i32) else {
+            return JObject::null().into_raw();
+        };
+        if env.set_float_array_region(&density_array, 0, &density).is_err() {
+            return JObject::null().into_raw();
+        }
+
+        let Ok(fluid_array) = env.new_byte_array(len as i32) else {
+            return JObject::null().into_raw();
+        };
+        let fluid_i8: Vec<i8> = fluid.iter().map(|b| *b as i8).collect();
+        if env.set_byte_array_region(&fluid_array, 0, &fluid_i8).is_err() {
+            return JObject::null().into_raw();
+        }
+
+        let pair = match env.new_object_array(2, "java/lang/Object", JObject::null()) {
+            Ok(arr) => arr,
+            Err(_) => return JObject::null().into_raw(),
+        };
+        if env.set_object_array_element(&pair, 0, density_array).is_err() {
+            return JObject::null().into_raw();
+        }
+        if env.set_object_array_element(&pair, 1, fluid_array).is_err() {
+            return JObject::null().into_raw();
+        }
+        if env.set_object_array_element(&outer, index as i32, pair).is_err() {
+            return JObject::null().into_raw();
+        }
+    }
+
+    outer.into_raw()
 }
 
 #[no_mangle]

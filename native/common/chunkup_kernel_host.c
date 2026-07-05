@@ -8,10 +8,10 @@ uint32_t chunkup_kernel_ops_for_stage(uint32_t stage) {
     switch (stage) {
         case CHUNKUP_STAGE_NOISE_FILL:
             return CHUNKUP_OP_NOISE_FILL;
-        case CHUNKUP_STAGE_GENERATED:
-            return CHUNKUP_OP_SKYLIGHT | CHUNKUP_OP_FACE_CULL;
+		case CHUNKUP_STAGE_GENERATED:
+            return CHUNKUP_OP_SKYLIGHT;
 		case CHUNKUP_STAGE_LOADED:
-			return 0u;
+			return CHUNKUP_OP_SKYLIGHT;
         default:
             return 0u;
     }
@@ -57,13 +57,12 @@ static void chunkup_op_skylight(const ChunkupKernelJob* job, ChunkupKernelBuffer
             int light = 15;
             for (int ly = job->height - 1; ly >= 0; --ly) {
                 const uint32_t idx = chunkup_block_index(lx, ly, lz, buffers->stride_y);
-                if (chunkup_is_solid(buffers->density[idx])) {
+                const float density = buffers->density[idx];
+                if (chunkup_skylight_opacity(density) >= 15) {
                     light = 0;
                 }
                 buffers->skylight[idx] = (uint8_t)light;
-                if (light > 0) {
-                    light -= 1;
-                }
+                light = chunkup_skylight_propagate(light, density);
             }
         }
     }

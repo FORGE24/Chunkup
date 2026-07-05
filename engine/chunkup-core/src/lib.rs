@@ -10,6 +10,7 @@ pub mod lighting;
 pub mod memory;
 pub mod noise;
 pub mod section;
+pub mod stats;
 
 use std::sync::Mutex;
 
@@ -57,6 +58,14 @@ pub fn active_backend() -> Option<BackendKind> {
         .lock()
         .ok()
         .and_then(|slot| slot.as_ref().map(|ctx| ctx.active_backend()))
+}
+
+pub fn set_force_gpu(enabled: bool) {
+    stats::set_force_gpu(enabled);
+}
+
+pub fn debug_stats_lines() -> Vec<String> {
+    stats::debug_lines()
 }
 
 pub fn dispatch_chunk_stage(chunk_x: i32, chunk_z: i32, stage_ordinal: i32) -> bool {
@@ -126,6 +135,63 @@ pub fn generate_chunk_density(
     );
 
     Some((workspace.density, workspace.fluid))
+}
+
+pub fn generate_chunk_density_batch(
+    chunk_coords: &[(i32, i32)],
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+) -> Option<Vec<(Vec<f32>, Vec<u8>)>> {
+    if height <= 0 || chunk_coords.is_empty() {
+        return None;
+    }
+
+    let seed = mix_world_seed(world_seed);
+    let template_job = KernelJob::for_density_fill(0, 0, min_y, height, seed);
+    let batch_count = chunk_coords.len() as i32;
+    let blocks_per_chunk = BLOCKS_PER_SECTION as usize * height as usize;
+    let mut host_density = vec![0f32; blocks_per_chunk * chunk_coords.len()];
+    let mut host_fluid = vec![0u8; blocks_per_chunk * chunk_coords.len()];
+
+    let Ok(slot) = ENGINE.lock() else {
+        return None;
+    };
+    let ctx = slot.as_ref()?;
+
+    let chunk_xs: Vec<i32> = chunk_coords.iter().map(|(x, _)| *x).collect();
+    let chunk_zs: Vec<i32> = chunk_coords.iter().map(|(_, z)| *z).collect();
+
+    ctx.kernel()
+        .dispatch_density_batch(
+            &template_job,
+            batch_count,
+            &chunk_xs,
+            &chunk_zs,
+            &mut host_density,
+            &mut host_fluid,
+            BLOCKS_PER_SECTION * height as u32,
+        )
+        .ok()?;
+
+    log::debug!(
+        "chunkup density batch backend={} count={} min_y={} height={}",
+        ctx.active_backend().name(),
+        batch_count,
+        min_y,
+        height
+    );
+
+    let mut outputs = Vec::with_capacity(chunk_coords.len());
+    for i in 0..chunk_coords.len() {
+        let start = i * blocks_per_chunk;
+        let end = start + blocks_per_chunk;
+        outputs.push((
+            host_density[start..end].to_vec(),
+            host_fluid[start..end].to_vec(),
+        ));
+    }
+    Some(outputs)
 }
 
 pub fn process_chunk_load(
@@ -216,7 +282,6 @@ pub fn process_chunk_load_batch(
         return None;
     }
 
-    let mut host_density = densities.to_vec();
     let mut host_skylight = vec![0u8; blocks_per_chunk * chunk_coords.len()];
     let mut host_face_mask = vec![0u8; blocks_per_chunk * chunk_coords.len()];
 
@@ -229,7 +294,7 @@ pub fn process_chunk_load_batch(
         .dispatch_batch(
             &template_job,
             batch_count,
-            &mut host_density,
+            densities,
             &mut host_skylight,
             &mut host_face_mask,
             BLOCKS_PER_SECTION * height as u32,

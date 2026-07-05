@@ -15,6 +15,8 @@
 #include "chunkup_noise_bundle.h"
 #include "chunkup_spline.h"
 
+#include <math.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -70,12 +72,44 @@ CHUNKUP_FN float chunkup_router_offset_from_continents(float continents) {
     );
 }
 
+CHUNKUP_FN float chunkup_router_offset_from_erosion(float erosion) {
+    return chunkup_spline_lookup(
+        erosion,
+        CHUNKUP_SPLINE_OFFSET_EROSION_LOC,
+        CHUNKUP_SPLINE_OFFSET_EROSION_VAL,
+        CHUNKUP_SPLINE_OFFSET_EROSION_COUNT
+    );
+}
+
+CHUNKUP_FN float chunkup_router_ridges_folded(float ridges) {
+    const float v = 1.25f - 3.0f * fabsf(ridges);
+    return chunkup_clampf(v, -1.0f, 1.0f);
+}
+
+CHUNKUP_FN float chunkup_router_offset_from_ridges(float ridges) {
+    return chunkup_spline_lookup(
+        chunkup_router_ridges_folded(ridges),
+        CHUNKUP_SPLINE_OFFSET_RIDGES_LOC,
+        CHUNKUP_SPLINE_OFFSET_RIDGES_VAL,
+        CHUNKUP_SPLINE_OFFSET_RIDGES_COUNT
+    );
+}
+
 CHUNKUP_FN float chunkup_router_factor_from_continents(float continents) {
     return chunkup_spline_lookup(
         continents,
         CHUNKUP_SPLINE_FACTOR_CONTINENTS_LOC,
         CHUNKUP_SPLINE_FACTOR_CONTINENTS_VAL,
         CHUNKUP_SPLINE_FACTOR_CONTINENTS_COUNT
+    );
+}
+
+CHUNKUP_FN float chunkup_router_factor_from_erosion(float erosion) {
+    return chunkup_spline_lookup(
+        erosion,
+        CHUNKUP_SPLINE_FACTOR_EROSION_LOC,
+        CHUNKUP_SPLINE_FACTOR_EROSION_VAL,
+        CHUNKUP_SPLINE_FACTOR_EROSION_COUNT
     );
 }
 
@@ -112,10 +146,11 @@ CHUNKUP_FN ChunkupRouterSample2D chunkup_router_sample_2d(
         wx,
         wz
     );
-    s.offset = chunkup_router_offset_from_continents(s.continents);
-    s.factor = chunkup_router_factor_from_continents(s.continents);
-    (void)s.erosion;
-    (void)s.ridges;
+    s.offset = chunkup_router_offset_from_continents(s.continents)
+        + chunkup_router_offset_from_erosion(s.erosion)
+        + chunkup_router_offset_from_ridges(s.ridges);
+    s.factor = chunkup_router_factor_from_continents(s.continents)
+        + chunkup_router_factor_from_erosion(s.erosion);
     return s;
 }
 
@@ -180,7 +215,7 @@ CHUNKUP_FN float chunkup_router_initial_density(
         + y_bottom * (CHUNKUP_INIT_ADD2 + CHUNKUP_INIT_ADD3 + y_top * (CHUNKUP_INIT_ADD4 + core));
 
     /* sloped_cheese 的 base_3d 分量（无 jaggedness） */
-    density += chunkup_router_base3d(bundle, wx, wy, wz) * 0.15f;
+    density += chunkup_router_base3d(bundle, wx, wy, wz) * CHUNKUP_SLOPED_CHEESE_MUL * 0.15f;
 
     (void)wx;
     (void)wz;

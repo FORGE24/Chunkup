@@ -7,36 +7,54 @@ import org.slf4j.LoggerFactory
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 新区块生成（GENERATED）阶段的 GPU 面剔除 / 天空光预计算。
+ * CUDA 区块加载 batch（非阻塞）：GENERATED / LOADED 入队，在 tick 末按批量阈值 flush。
  *
- * 默认不在 LOADED 阶段运行，避免与原版区块加载、光照引擎冲突。
- * 通过 [ChunkLoadBatcher] 攒批后单次 GPU dispatch 并行处理。
+ * 不再在区块生成回调里同步 flush，避免「每 tick 小批 GPU + 阻塞 notify」导致的横向卡顿。
  */
 object ChunkLoadPipeline {
 	private val LOGGER = LoggerFactory.getLogger("${Chunkup.MOD_ID}.generation.load")
 	private val processedCount = AtomicLong(0)
+	private var ticksSinceFlush = 0
 
 	@JvmStatic
 	fun enqueue(context: ChunkGenerationContext, engine: EngineBridge): Boolean {
 		if (!shouldProcess(context)) {
 			return false
 		}
-
-		if (!engine.isAvailable()) {
+		if (!engine.isAvailable() || context.level == null) {
 			return false
 		}
-
-		if (context.level == null) {
-			return false
+		return ChunkLoadBatcher.enqueue(context, engine).also { enqueued ->
+			if (enqueued && ChunkupConfig.gpuChunkLoadFlushInterval <= 1) {
+				ChunkLoadBatcher.flushDue(engine, force = false, allowPartial = true)
+			}
 		}
+	}
 
-		return ChunkLoadBatcher.enqueue(context, engine)
+	@JvmStatic
+	fun onServerTickEnd(engine: EngineBridge) {
+		if (!ChunkupConfig.gpuChunkLoadEnabled) {
+			return
+		}
+		ticksSinceFlush++
+		val interval = ChunkupConfig.gpuChunkLoadFlushInterval
+		val allowPartial = ticksSinceFlush >= interval
+		if (ChunkLoadBatcher.flushDue(engine, force = false, allowPartial = allowPartial)) {
+			ticksSinceFlush = 0
+		}
 	}
 
 	@JvmStatic
 	fun flush(engine: EngineBridge) {
-		ChunkLoadBatcher.flush(engine)
+		if (!ChunkupConfig.gpuChunkLoadEnabled) {
+			return
+		}
+		ChunkLoadBatcher.flushDue(engine, force = true, allowPartial = true)
+		ticksSinceFlush = 0
 	}
+
+	@JvmStatic
+	fun processedCount(): Long = processedCount.get()
 
 	internal fun recordBatchProcessed(context: ChunkGenerationContext, backend: String, batchSize: Int) {
 		val count = processedCount.addAndGet(batchSize.toLong())
@@ -51,8 +69,8 @@ object ChunkLoadPipeline {
 				count,
 			)
 		}
-		val interval = ChunkupConfig.gpuChunkLoadSummaryInterval
-		if (count % interval == 0L) {
+		val summaryInterval = ChunkupConfig.gpuChunkLoadSummaryInterval
+		if (count % summaryInterval == 0L) {
 			LOGGER.debug(
 				"chunkup GPU chunk load summary: {} chunks processed (latest backend={}, batch={})",
 				count,
@@ -63,8 +81,12 @@ object ChunkLoadPipeline {
 	}
 
 	private fun shouldProcess(context: ChunkGenerationContext): Boolean {
+		if (!ChunkupConfig.gpuChunkLoadEnabled) {
+			return false
+		}
 		return when (context.stage) {
-			ChunkGenerationStage.GENERATED -> context.newlyGenerated
+			ChunkGenerationStage.GENERATED ->
+				context.newlyGenerated && ChunkupConfig.gpuChunkLoadOnGenerated
 			ChunkGenerationStage.LOADED -> ChunkupConfig.gpuChunkLoadOnLoaded
 			else -> false
 		}

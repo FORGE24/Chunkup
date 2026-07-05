@@ -47,8 +47,22 @@ loom {
 			val nativeDir = layout.buildDirectory.dir("native").get().asFile.absolutePath
 			vmArg("-Djava.library.path=$nativeDir")
 			vmArg("-Dchunkup.native.dir=$nativeDir")
-			vmArg("-Dchunkup.gpuSections=true")
-			vmArg("-DRUST_LOG=warn,chunkup_core=warn")
+			vmArg("-Dchunkup.instantLoad=true")
+			vmArg("-Dchunkup.gpuWorldGen=false")
+			vmArg("-Dchunkup.gpuDensityBatch=false")
+			vmArg("-Dchunkup.layeredSections=true")
+			vmArg("-Dchunkup.layeredSections.rate=4")
+			vmArg("-Dchunkup.gpuSections=false")
+			vmArg("-Dchunkup.forceGpu=true")
+			vmArg("-Dchunkup.gpuChunkLoad.generated=false")
+			vmArg("-Dchunkup.gpuChunkLoad.loaded=false")
+			vmArg("-Dchunkup.gpuSkylightApply=false")
+			vmArg("-Dchunkup.gpuChunkLoad.batchSize=64")
+			vmArg("-Dchunkup.gpuChunkLoad.flushInterval=20")
+			vmArg("-Dchunkup.gpuChunkLoad.minFlushBatch=16")
+			vmArg("-Dchunkup.f3Debug=true")
+			vmArg("-Dchunkup.debug.probe=true")
+			vmArg("-DRUST_LOG=warn,chunkup_core=info")
 		}
 	}
 }
@@ -237,14 +251,19 @@ tasks.register<Copy>("stageWindowsNativeForJar") {
 
 tasks.named<ProcessResources>("processResources") {
 	dependsOn("stageNativeForJar", "stageWindowsNativeForJar")
+	inputs.dir(layout.buildDirectory.dir("generated/native"))
+		.withPropertyName("chunkupEmbeddedNatives")
 	from(layout.buildDirectory.dir("generated/native")) {
 		include("**/*")
 		into("assets/chunkup/native")
 	}
 }
 
-tasks.named("jar") {
-	dependsOn("copyNativeLibraries")
+tasks.named<Jar>("jar") {
+	dependsOn("copyNativeLibraries", "stageNativeForJar", "stageWindowsNativeForJar")
+	inputs.dir(layout.buildDirectory.dir("generated/native"))
+		.withPropertyName("chunkupEmbeddedNatives")
+	inputs.dir(nativeOutputDir).withPropertyName("chunkupRuntimeNatives")
 }
 
 tasks.named("build") {
@@ -253,6 +272,71 @@ tasks.named("build") {
 
 tasks.named("runClient") {
 	dependsOn("copyNativeLibraries")
+}
+
+val releaseJarName = "chunkup-${project.version}.jar"
+val releaseJarWorkName = "chunkup-${project.version}-build.jar"
+
+// Canonical release artifact: build/remapped/chunkup-*.jar (full mod + embedded natives).
+// Write to *.jar.work first to avoid corrupt/locked partial outputs on Windows.
+tasks.named<net.fabricmc.loom.task.RemapJarTask>("remapJar") {
+	destinationDirectory.set(layout.buildDirectory.dir("remapped"))
+	archiveFileName.set(releaseJarWorkName)
+
+	doFirst {
+		val work = layout.buildDirectory.file("remapped/$releaseJarWorkName").get().asFile
+		val release = layout.buildDirectory.file("remapped/$releaseJarName").get().asFile
+		work.parentFile.mkdirs()
+		work.delete()
+		release.delete()
+	}
+
+	doLast {
+		val work = layout.buildDirectory.file("remapped/$releaseJarWorkName").get().asFile
+		val release = layout.buildDirectory.file("remapped/$releaseJarName").get().asFile
+		if (!work.exists()) {
+			throw GradleException("remapJar work output missing: ${work.absolutePath}")
+		}
+		if (release.exists() && !release.delete()) {
+			logger.lifecycle("Release JAR (work file): ${work.absolutePath}")
+			logger.lifecycle(
+				"Could not replace build/remapped/$releaseJarName (locked). " +
+					"Install the .jar.work file or close runClient / reload IDE.",
+			)
+			return@doLast
+		}
+		if (!work.renameTo(release)) {
+			work.copyTo(release, overwrite = true)
+			work.delete()
+		}
+
+		val libsJar = layout.buildDirectory.file("libs/$releaseJarName").get().asFile
+		libsJar.parentFile.mkdirs()
+		val synced = runCatching {
+			if (libsJar.exists() && !libsJar.delete()) {
+				false
+			} else {
+				release.copyTo(libsJar, overwrite = true)
+				true
+			}
+		}.getOrDefault(false)
+
+		if (synced) {
+			logger.lifecycle("Chunkup release JAR (with natives): ${libsJar.absolutePath}")
+		} else {
+			logger.lifecycle("Chunkup release JAR (with natives): ${release.absolutePath}")
+			logger.lifecycle(
+				"Could not update build/libs/$releaseJarName (file locked). " +
+					"Install the remapped JAR above, or close runClient and reload the IDE.",
+			)
+		}
+	}
+}
+
+tasks.register("chunkupRelease") {
+	group = "chunkup"
+	description = "Build the installable mod JAR with embedded native libraries"
+	dependsOn("remapJar")
 }
 
 // configure the maven publication

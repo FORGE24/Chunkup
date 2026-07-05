@@ -6,11 +6,13 @@
 namespace {
 
 jclass g_snapshotClass = nullptr;
+jfieldID g_forceGpu = nullptr;
 jfieldID g_gpuChunkLoadOnLoaded = nullptr;
 jfieldID g_gpuSkylightApply = nullptr;
 jfieldID g_gpuChunkLoadSummaryInterval = nullptr;
 jfieldID g_gpuChunkLoadBatchSize = nullptr;
 jfieldID g_gpuSections = nullptr;
+jfieldID g_f3Debug = nullptr;
 jfieldID g_nativeDir = nullptr;
 jfieldID g_rustLogLevel = nullptr;
 
@@ -31,27 +33,31 @@ bool ensureFieldIds(JNIEnv *env)
         return false;
     }
 
+    g_forceGpu = env->GetFieldID(g_snapshotClass, "forceGpu", "Z");
     g_gpuChunkLoadOnLoaded = env->GetFieldID(g_snapshotClass, "gpuChunkLoadOnLoaded", "Z");
     g_gpuSkylightApply = env->GetFieldID(g_snapshotClass, "gpuSkylightApply", "Z");
     g_gpuChunkLoadSummaryInterval = env->GetFieldID(g_snapshotClass, "gpuChunkLoadSummaryInterval", "I");
     g_gpuChunkLoadBatchSize = env->GetFieldID(g_snapshotClass, "gpuChunkLoadBatchSize", "I");
     g_gpuSections = env->GetFieldID(g_snapshotClass, "gpuSections", "Z");
+    g_f3Debug = env->GetFieldID(g_snapshotClass, "f3Debug", "Z");
     g_nativeDir = env->GetFieldID(g_snapshotClass, "nativeDir", "Ljava/lang/String;");
     g_rustLogLevel = env->GetFieldID(g_snapshotClass, "rustLogLevel", "Ljava/lang/String;");
 
-    return g_gpuChunkLoadOnLoaded && g_gpuSkylightApply && g_gpuChunkLoadSummaryInterval
-        && g_gpuChunkLoadBatchSize && g_gpuSections && g_nativeDir && g_rustLogLevel;
+    return g_forceGpu && g_gpuChunkLoadOnLoaded && g_gpuSkylightApply && g_gpuChunkLoadSummaryInterval
+        && g_gpuChunkLoadBatchSize && g_gpuSections && g_f3Debug && g_nativeDir && g_rustLogLevel;
 }
 
 void readSnapshot(JNIEnv *env, jobject snapshot, ChunkupSettingsNative *native)
 {
     memset(native, 0, sizeof(*native));
     native->version = 1;
+    native->force_gpu = env->GetBooleanField(snapshot, g_forceGpu) ? 1 : 0;
     native->gpu_chunk_load_on_loaded = env->GetBooleanField(snapshot, g_gpuChunkLoadOnLoaded) ? 1 : 0;
     native->gpu_skylight_apply = env->GetBooleanField(snapshot, g_gpuSkylightApply) ? 1 : 0;
     native->gpu_chunk_load_summary_interval = env->GetIntField(snapshot, g_gpuChunkLoadSummaryInterval);
     native->gpu_chunk_load_batch_size = env->GetIntField(snapshot, g_gpuChunkLoadBatchSize);
     native->gpu_sections = env->GetBooleanField(snapshot, g_gpuSections) ? 1 : 0;
+    native->f3_debug = env->GetBooleanField(snapshot, g_f3Debug) ? 1 : 0;
 
     auto readString = [&](jfieldID fieldId, char *dest, size_t destSize) {
         const auto jvalue = reinterpret_cast<jstring>(env->GetObjectField(snapshot, fieldId));
@@ -74,11 +80,13 @@ void readSnapshot(JNIEnv *env, jobject snapshot, ChunkupSettingsNative *native)
 
 void writeSnapshot(JNIEnv *env, jobject snapshot, const ChunkupSettingsNative *native)
 {
+    env->SetBooleanField(snapshot, g_forceGpu, native->force_gpu != 0);
     env->SetBooleanField(snapshot, g_gpuChunkLoadOnLoaded, native->gpu_chunk_load_on_loaded != 0);
     env->SetBooleanField(snapshot, g_gpuSkylightApply, native->gpu_skylight_apply != 0);
     env->SetIntField(snapshot, g_gpuChunkLoadSummaryInterval, native->gpu_chunk_load_summary_interval);
     env->SetIntField(snapshot, g_gpuChunkLoadBatchSize, native->gpu_chunk_load_batch_size);
     env->SetBooleanField(snapshot, g_gpuSections, native->gpu_sections != 0);
+    env->SetBooleanField(snapshot, g_f3Debug, native->f3_debug != 0);
 
     const jstring nativeDir = env->NewStringUTF(native->native_dir);
     const jstring rustLog = env->NewStringUTF(native->rust_log_level);

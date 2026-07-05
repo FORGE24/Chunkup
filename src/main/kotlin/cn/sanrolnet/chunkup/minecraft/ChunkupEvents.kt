@@ -25,12 +25,17 @@ object ChunkupEvents {
 			ChunkGenerationWorldContext.bindServer(server)
 			if (engine.initialize()) {
 				LOGGER.info(
-					"Chunkup engine initialized via {} (compute backend={}, gpuChunkLoad.loaded={}, gpuSkylightApply={}, batchSize={})",
+					"Chunkup engine initialized via {} (compute backend={}, gpuWorldGen={}, instantLoad={}, forceGpu={}, genGpu={}, loadedGpu={}, gpuSkylightApply={}, densityBatch={}, batchSize={})",
 					engine.backendName,
 					engine.activeComputeBackend(),
+					ChunkupConfig.gpuWorldGen,
+					ChunkupConfig.instantLoad,
+					ChunkupConfig.forceGpu,
+					ChunkupConfig.gpuChunkLoadOnGenerated,
 					ChunkupConfig.gpuChunkLoadOnLoaded,
 					ChunkupConfig.gpuSkylightApply,
-					ChunkupConfig.gpuChunkLoadBatchSize,
+					ChunkupConfig.gpuDensityBatch,
+					ChunkupConfig.gpuDensityBatchSize,
 				)
 			} else {
 				LOGGER.warn("Chunkup engine failed to initialize; falling back to vanilla chunk pipeline")
@@ -43,7 +48,7 @@ object ChunkupEvents {
 		}
 
 		ServerTickEvents.END_SERVER_TICK.register { _ ->
-			ChunkLoadPipeline.flush(engine)
+			ChunkLoadPipeline.onServerTickEnd(engine)
 		}
 
 		ServerChunkEvents.CHUNK_LOAD.register { world, chunk ->

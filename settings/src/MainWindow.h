@@ -33,11 +33,13 @@ private slots:
 private:
     void buildUi();
 
+    QCheckBox *m_forceGpu = nullptr;
     QCheckBox *m_gpuChunkLoadOnLoaded = nullptr;
     QCheckBox *m_gpuSkylightApply = nullptr;
     QSpinBox *m_gpuChunkLoadSummaryInterval = nullptr;
     QSpinBox *m_gpuChunkLoadBatchSize = nullptr;
     QCheckBox *m_gpuSections = nullptr;
+    QCheckBox *m_f3Debug = nullptr;
     QLineEdit *m_nativeDir = nullptr;
     QLineEdit *m_rustLogLevel = nullptr;
     QPlainTextEdit *m_jvmPreview = nullptr;

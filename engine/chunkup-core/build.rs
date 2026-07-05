@@ -29,6 +29,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", router_header.display());
 
     println!("cargo:rerun-if-changed={}", common.join("chunkup_batch_host.c").display());
+    println!("cargo:rerun-if-changed={}", common.join("chunkup_batch_density_host.c").display());
 
     println!("cargo:rerun-if-changed={}", common.join("chunkup_noise_state.h").display());
 
@@ -41,6 +42,7 @@ fn main() {
         .file(common.join("chunkup_kernel_host.c"))
 
         .file(common.join("chunkup_batch_host.c"))
+        .file(common.join("chunkup_batch_density_host.c"))
 
         .file(common.join("chunkup_noise_state.c"))
 

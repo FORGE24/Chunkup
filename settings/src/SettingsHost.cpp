@@ -27,11 +27,13 @@ void ensureQtApplication()
 ChunkupSettings toQtSettings(const ChunkupSettingsNative &native)
 {
     ChunkupSettings settings = ChunkupSettings::defaults();
+    settings.forceGpu = native.force_gpu != 0;
     settings.gpuChunkLoadOnLoaded = native.gpu_chunk_load_on_loaded != 0;
     settings.gpuSkylightApply = native.gpu_skylight_apply != 0;
     settings.gpuChunkLoadSummaryInterval = native.gpu_chunk_load_summary_interval;
     settings.gpuChunkLoadBatchSize = native.gpu_chunk_load_batch_size;
     settings.gpuSections = native.gpu_sections != 0;
+    settings.f3Debug = native.f3_debug != 0;
     settings.nativeDir = QString::fromUtf8(native.native_dir);
     settings.rustLogLevel = QString::fromUtf8(native.rust_log_level);
     return settings;
@@ -43,11 +45,13 @@ void toNativeSettings(const ChunkupSettings &settings, ChunkupSettingsNative *na
         return;
     }
     native->version = settings.version;
+    native->force_gpu = settings.forceGpu ? 1 : 0;
     native->gpu_chunk_load_on_loaded = settings.gpuChunkLoadOnLoaded ? 1 : 0;
     native->gpu_skylight_apply = settings.gpuSkylightApply ? 1 : 0;
     native->gpu_chunk_load_summary_interval = settings.gpuChunkLoadSummaryInterval;
     native->gpu_chunk_load_batch_size = settings.gpuChunkLoadBatchSize;
     native->gpu_sections = settings.gpuSections ? 1 : 0;
+    native->f3_debug = settings.f3Debug ? 1 : 0;
 
     const QByteArray nativeDir = settings.nativeDir.toUtf8();
     const QByteArray rustLog = settings.rustLogLevel.toUtf8();

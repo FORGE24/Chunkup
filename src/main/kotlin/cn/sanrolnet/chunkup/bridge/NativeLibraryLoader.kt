@@ -33,6 +33,74 @@ object NativeLibraryLoader {
     fun nativeLibraryDirectory(): String? =
         nativeLibraryDir?.toAbsolutePath()?.toString()
 
+    private val WINDOWS_DEPENDENCY_DLLS = listOf(
+        "libwinpthread-1.dll",
+        "libgcc_s_seh-1.dll",
+        "libstdc++-6.dll",
+        "Qt6Core.dll",
+        "Qt6Gui.dll",
+        "Qt6Widgets.dll",
+        "Qt6Network.dll",
+        "Qt6Svg.dll",
+    )
+
+    /** 让 Windows 能解析同目录 Qt / MinGW 依赖 DLL。 */
+    @JvmStatic
+    fun prepareNativeDirectory(dir: Path) {
+        val absolute = dir.toAbsolutePath().toString()
+        System.setProperty("chunkup.native.dir", absolute)
+        prependPathEntry(absolute)
+        try {
+            val envField = Class.forName("java.lang.ProcessEnvironment")
+                .getDeclaredField("theUnmodifiableEnvironment")
+            envField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val env = envField.get(null) as MutableMap<String, String>
+            env["CHUNKUP_NATIVE_DIR"] = absolute
+            if (System.getProperty("os.name").lowercase().contains("win")) {
+                env["QT_PLUGIN_PATH"] = absolute
+            }
+        } catch (_: Exception) {
+            // 非致命；Rust 侧仍可通过 JNI 收到目录
+        }
+    }
+
+    private fun preloadWindowsDependencies(dir: Path) {
+        if (!System.getProperty("os.name").lowercase().contains("win")) {
+            return
+        }
+        for (name in WINDOWS_DEPENDENCY_DLLS) {
+            val path = dir.resolve(name)
+            if (!Files.isRegularFile(path)) {
+                continue
+            }
+            try {
+                System.load(path.toAbsolutePath().toString())
+            } catch (_: UnsatisfiedLinkError) {
+                // Optional; chunkup_settings load may still succeed.
+            }
+        }
+    }
+
+    private fun prependPathEntry(entry: String) {
+        val key = "PATH"
+        val existing = System.getenv(key) ?: ""
+        if (existing.split(';').any { it.equals(entry, ignoreCase = true) }) {
+            return
+        }
+        val updated = if (existing.isEmpty()) entry else "$entry;$existing"
+        try {
+            val envField = Class.forName("java.lang.ProcessEnvironment")
+                .getDeclaredField("theUnmodifiableEnvironment")
+            envField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val env = envField.get(null) as MutableMap<String, String>
+            env[key] = updated
+        } catch (_: Exception) {
+            // ignore
+        }
+    }
+
     fun loadEngineLibraries(): Boolean {
         if (tryLoadFromLibraryPath()) {
             return true
@@ -58,6 +126,11 @@ object NativeLibraryLoader {
                 }
             }
 
+            nativeLibraryDir?.let {
+                prepareNativeDirectory(it)
+                preloadWindowsDependencies(it)
+            }
+
             // 先加载 GPU 库，Rust 侧 dlopen 才能复用已映射模块。
             tryLoadOptional("chunkup_cuda")
             tryLoadOptional("chunkup_opencl")
@@ -75,6 +148,8 @@ object NativeLibraryLoader {
 
     private fun loadFromDirectory(dir: Path): Boolean {
         nativeLibraryDir = dir
+        prepareNativeDirectory(dir)
+        preloadWindowsDependencies(dir)
         for (baseName in LIBRARY_BASE_NAMES) {
             val fileName = System.mapLibraryName(baseName)
             val path = dir.resolve(fileName)

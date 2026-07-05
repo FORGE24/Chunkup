@@ -25,11 +25,13 @@ QJsonObject ChunkupSettings::toJson() const
 {
     QJsonObject object;
     object.insert(QStringLiteral("version"), version);
+    object.insert(QStringLiteral("forceGpu"), forceGpu);
     object.insert(QStringLiteral("gpuChunkLoadOnLoaded"), gpuChunkLoadOnLoaded);
     object.insert(QStringLiteral("gpuSkylightApply"), gpuSkylightApply);
     object.insert(QStringLiteral("gpuChunkLoadSummaryInterval"), gpuChunkLoadSummaryInterval);
     object.insert(QStringLiteral("gpuChunkLoadBatchSize"), gpuChunkLoadBatchSize);
     object.insert(QStringLiteral("gpuSections"), gpuSections);
+    object.insert(QStringLiteral("f3Debug"), f3Debug);
     object.insert(QStringLiteral("nativeDir"), nativeDir);
     object.insert(QStringLiteral("rustLogLevel"), rustLogLevel);
     return object;
@@ -39,11 +41,13 @@ ChunkupSettings ChunkupSettings::fromJson(const QJsonObject &object)
 {
     ChunkupSettings settings = ChunkupSettings::defaults();
     settings.version = object.value(QStringLiteral("version")).toInt(1);
-    settings.gpuChunkLoadOnLoaded = object.value(QStringLiteral("gpuChunkLoadOnLoaded")).toBool(false);
-    settings.gpuSkylightApply = object.value(QStringLiteral("gpuSkylightApply")).toBool(false);
+    settings.forceGpu = object.value(QStringLiteral("forceGpu")).toBool(true);
+    settings.gpuChunkLoadOnLoaded = object.value(QStringLiteral("gpuChunkLoadOnLoaded")).toBool(true);
+    settings.gpuSkylightApply = object.value(QStringLiteral("gpuSkylightApply")).toBool(true);
     settings.gpuChunkLoadSummaryInterval = object.value(QStringLiteral("gpuChunkLoadSummaryInterval")).toInt(256);
-    settings.gpuChunkLoadBatchSize = object.value(QStringLiteral("gpuChunkLoadBatchSize")).toInt(32);
+    settings.gpuChunkLoadBatchSize = object.value(QStringLiteral("gpuChunkLoadBatchSize")).toInt(64);
     settings.gpuSections = object.value(QStringLiteral("gpuSections")).toBool(true);
+    settings.f3Debug = object.value(QStringLiteral("f3Debug")).toBool(true);
     settings.nativeDir = object.value(QStringLiteral("nativeDir")).toString().trimmed();
     settings.rustLogLevel = object.value(QStringLiteral("rustLogLevel"))
                                 .toString(QStringLiteral("warn,chunkup_core=warn"))
@@ -110,11 +114,13 @@ bool ConfigManager::save(const ChunkupSettings &settings, QString *errorMessage)
 QString ConfigManager::buildJvmArguments(const ChunkupSettings &settings)
 {
     QStringList args;
+    args << QStringLiteral("-Dchunkup.forceGpu=%1").arg(settings.forceGpu ? QStringLiteral("true") : QStringLiteral("false"));
     args << QStringLiteral("-Dchunkup.gpuChunkLoad.loaded=%1").arg(settings.gpuChunkLoadOnLoaded ? QStringLiteral("true") : QStringLiteral("false"));
     args << QStringLiteral("-Dchunkup.gpuSkylightApply=%1").arg(settings.gpuSkylightApply ? QStringLiteral("true") : QStringLiteral("false"));
     args << QStringLiteral("-Dchunkup.gpuChunkLoad.summaryInterval=%1").arg(settings.gpuChunkLoadSummaryInterval);
     args << QStringLiteral("-Dchunkup.gpuChunkLoad.batchSize=%1").arg(settings.gpuChunkLoadBatchSize);
     args << QStringLiteral("-Dchunkup.gpuSections=%1").arg(settings.gpuSections ? QStringLiteral("true") : QStringLiteral("false"));
+    args << QStringLiteral("-Dchunkup.f3Debug=%1").arg(settings.f3Debug ? QStringLiteral("true") : QStringLiteral("false"));
 
     if (!settings.nativeDir.isEmpty()) {
         const QString nativeDir = QDir::toNativeSeparators(settings.nativeDir);

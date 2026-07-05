@@ -5,8 +5,7 @@ import cn.sanrolnet.chunkup.client.sodium.SodiumIntegration
 import org.slf4j.LoggerFactory
 
 /**
- * Section mesh 现由 [cn.sanrolnet.chunkup.client.sodium.ChunkupSectionMesher]
- * 在 Sodium worker 线程上直接构建，不再使用 Rust 简化 mesher 后台队列。
+ * Section mesh：默认 Sodium 原生；可选 Rust 快路径见 [ChunkBuilderMeshingTaskMixin]。
  */
 object ClientSectionPipeline {
 	private val LOGGER = LoggerFactory.getLogger("${Chunkup.MOD_ID}.client.pipeline")
@@ -17,9 +16,9 @@ object ClientSectionPipeline {
 			return
 		}
 		if (!SodiumIntegration.useGpuSectionMeshes) {
-			LOGGER.info("Chunkup section mesher disabled; Sodium native meshing active")
+			LOGGER.info("Sodium native section meshing active (chunkup.gpuSections=false)")
 			return
 		}
-		LOGGER.info("Chunkup section mesher active (Sodium worker thread, 3 render passes)")
+		LOGGER.info("Chunkup Rust section fast-path enabled; complex sections fall back to Sodium")
 	}
 }

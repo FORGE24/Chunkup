@@ -1,6 +1,8 @@
 package cn.sanrolnet.chunkup.minecraft.generation
 
 import cn.sanrolnet.chunkup.Chunkup
+import cn.sanrolnet.chunkup.ChunkupConfig
+import cn.sanrolnet.chunkup.debug.ChunkupDebugStats
 import net.minecraft.world.level.chunk.ChunkAccess
 import org.slf4j.LoggerFactory
 
@@ -12,6 +14,10 @@ object ChunkDensityGeneration {
 
 	@JvmStatic
 	fun tryReplaceNoiseFill(chunk: ChunkAccess, minY: Int, height: Int): Boolean {
+		if (ChunkupConfig.instantLoad || !ChunkupConfig.gpuNoiseFill) {
+			return false
+		}
+
 		val engine = runCatching { Chunkup.engine }.getOrNull() ?: return false
 		if (!engine.isAvailable()) {
 			return false
@@ -23,15 +29,20 @@ object ChunkDensityGeneration {
 			return false
 		}
 
-		val fill = engine.generateChunkDensity(
-			chunk.pos.x,
-			chunk.pos.z,
-			minY,
-			height,
-			level.seed,
-		) ?: return false
+		val fill = if (ChunkupConfig.gpuDensityBatch) {
+			ChunkDensityBatcher.fill(engine, chunk, minY, height, level)
+		} else {
+			engine.generateChunkDensity(
+				chunk.pos.x,
+				chunk.pos.z,
+				minY,
+				height,
+				level.seed,
+			)
+		} ?: return false
 
 		return try {
+			ChunkDensityCache.store(chunk.pos.x, chunk.pos.z, minY, height, fill.density)
 			ChunkDensityApplier.apply(chunk, fill, minY, height)
 			ChunkGenerationHooks.notify(
 				ChunkGenerationContext(
@@ -40,6 +51,7 @@ object ChunkDensityGeneration {
 					stage = ChunkGenerationStage.NOISE_FILL,
 				),
 			)
+			ChunkupDebugStats.recordDensityFill(engine.activeComputeBackend())
 			LOGGER.debug(
 				"chunkup GPU noise fill chunk=[{}, {}] minY={} height={} seed={}",
 				chunk.pos.x,

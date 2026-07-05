@@ -5,11 +5,13 @@
 
 struct ChunkupSettings {
     int version = 1;
-    bool gpuChunkLoadOnLoaded = false;
-    bool gpuSkylightApply = false;
+    bool forceGpu = true;
+    bool gpuChunkLoadOnLoaded = true;
+    bool gpuSkylightApply = true;
     int gpuChunkLoadSummaryInterval = 256;
-    int gpuChunkLoadBatchSize = 32;
+    int gpuChunkLoadBatchSize = 64;
     bool gpuSections = true;
+    bool f3Debug = true;
     QString nativeDir;
     QString rustLogLevel = QStringLiteral("warn,chunkup_core=warn");
 

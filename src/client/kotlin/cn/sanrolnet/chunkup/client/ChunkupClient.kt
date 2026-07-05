@@ -5,6 +5,7 @@ import cn.sanrolnet.chunkup.client.bridge.ClientEngineBridge
 import cn.sanrolnet.chunkup.client.pipeline.ClientSectionPipeline
 import cn.sanrolnet.chunkup.client.settings.ChunkupSettingsKeybind
 import cn.sanrolnet.chunkup.client.settings.SettingsNative
+import cn.sanrolnet.chunkup.client.sodium.LayeredSectionBootstrap
 import cn.sanrolnet.chunkup.client.sodium.SodiumIntegration
 import net.fabricmc.api.ClientModInitializer
 import org.slf4j.LoggerFactory
@@ -18,16 +19,15 @@ object ChunkupClient : ClientModInitializer {
 		}
 		if (SodiumIntegration.isLoaded) {
 			ClientSectionPipeline.init()
+			LayeredSectionBootstrap.register()
 			if (SodiumIntegration.useGpuSectionMeshes) {
-				LOGGER.info("Chunkup GPU section mesh enabled (SOLID/CUTOUT/TRANSLUCENT)")
+				LOGGER.info("Chunkup Rust section fast-path enabled (Sodium fallback for complex sections)")
 			} else {
-				LOGGER.info("Chunkup running with Sodium native section rendering")
+				LOGGER.info("Sodium native section meshing active")
 			}
 		}
 
-		if (SettingsNative.ensureLoaded()) {
-			ChunkupSettingsKeybind.register()
-			LOGGER.info("Chunkup Qt settings UI ready (key: ,)")
-		}
+		ChunkupSettingsKeybind.register()
+		LOGGER.info("Chunkup settings ready (in-game key: ,)")
 	}
 }
