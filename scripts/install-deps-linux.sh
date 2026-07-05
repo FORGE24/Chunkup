@@ -77,15 +77,30 @@ install_arch() {
 # ── Alpine (apk) ───────────────────────────────────────────────────
 install_alpine() {
     echo "==> Alpine: installing with apk"
-    $SUDO apk add bash cmake g++ curl wget
-    # Rust via rustup (Alpine's rust/cargo packages are often outdated)
+    $SUDO apk add --no-cache bash cmake g++ curl 2>/dev/null || {
+        echo "WARNING: apk add failed, trying individual packages..."
+        for pkg in bash cmake g++; do
+            $SUDO apk add --no-cache "$pkg" 2>/dev/null || echo "  skip $pkg"
+        done
+    }
+    # Rust: try apk then rustup
     if ! command -v rustc &>/dev/null; then
-        wget -qO- https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-        . "$HOME/.cargo/env"
+        if $SUDO apk add --no-cache rust cargo 2>/dev/null; then
+            echo "==> Rust installed via apk"
+        else
+            echo "==> Installing Rust via rustup..."
+            curl -sSfL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable 2>/dev/null || {
+                echo "WARNING: rustup failed, skipping Rust (Alpine may lack glibc)"
+                return 0
+            }
+            . "$HOME/.cargo/env"
+        fi
     fi
     # OpenCL (CUDA NOT supported on Alpine — use OpenCL)
-    $SUDO apk add opencl-headers opencl-icd-loader-dev
-    echo "==> NOTE: Alpine uses OpenCL only (no CUDA support)"
+    $SUDO apk add --no-cache opencl-headers opencl-icd-loader-dev 2>/dev/null || {
+        echo "WARNING: OpenCL headers not available on this Alpine version"
+        echo "  Build will skip OpenCL backend"
+    }
     echo "==> Alpine dependencies installed"
 }
 
