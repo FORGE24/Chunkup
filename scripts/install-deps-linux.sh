@@ -77,10 +77,10 @@ install_arch() {
 # ── Alpine (apk) ───────────────────────────────────────────────────
 install_alpine() {
     echo "==> Alpine: installing with apk"
-    $SUDO apk add bash cmake g++ curl
+    $SUDO apk add bash cmake g++ curl wget
     # Rust via rustup (Alpine's rust/cargo packages are often outdated)
     if ! command -v rustc &>/dev/null; then
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        wget -qO- https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
         . "$HOME/.cargo/env"
     fi
     # OpenCL (CUDA NOT supported on Alpine — use OpenCL)
