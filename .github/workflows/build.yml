@@ -1,4 +1,4 @@
-# Chunkup CI — FORGE24 Linux multi-distro build
+# Chunkup CI — FORGE24 Linux multi-distro build + full JAR
 # Policy:
 #   RHEL/Debian → CUDA + OpenCL (CUDA优先)
 #   Arch/Alpine  → OpenCL ONLY (强制跳过CUDA)
@@ -34,11 +34,10 @@ jobs:
 
     container:
       image: ${{ matrix.image }}
-      options: --privileged  # needed for some package managers
+      options: --privileged
 
     steps:
-      - name: checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
       - name: install deps (${{ matrix.distro }})
         continue-on-error: ${{ matrix.continue-on-error || false }}
@@ -49,53 +48,40 @@ jobs:
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           bash scripts/build-engine.sh 2>&1 | tee build-native.log
-          echo "=== Build log ==="
-          cat build-native.log
 
-      - name: verify artifacts exist
+      - name: verify artifacts
         run: |
-          echo "=== Native output ==="
-          ls -la build/native-gpu/ || echo "(empty)"
-          echo ""
-          echo "=== Check: Rust core lib ==="
+          echo "=== Rust core ==="
           find engine/target/release -name 'libchunkup_core*' -type f
-          echo ""
-          echo "=== Check: GPU backends ==="
+          echo "=== GPU backends ==="
           find build/ -name 'libchunkup_cuda*' -o -name 'libchunkup_opencl*' | sort
+          echo "=== Native output ==="
+          ls -la build/native-gpu/ 2>/dev/null || echo "(empty)"
 
       - name: verify CUDA policy (${{ matrix.cuda_expected }})
         run: |
           HAS_CUDA=$(find build/ -name 'libchunkup_cuda*' -type f | wc -l)
           HAS_OPENCL=$(find build/ -name 'libchunkup_opencl*' -type f | wc -l)
-
-          echo "CUDA .so found:  $HAS_CUDA  (expected: ${{ matrix.cuda_expected }})"
-          echo "OpenCL .so found: $HAS_OPENCL"
-
+          echo "CUDA: $HAS_CUDA  OpenCL: $HAS_OPENCL  expected CUDA: ${{ matrix.cuda_expected }}"
           if [[ "${{ matrix.cuda_expected }}" == "yes" ]]; then
-            # RHEL/Debian: should build OpenCL; CUDA builds only if nvcc found
-            if [[ "$HAS_OPENCL" -eq 0 ]]; then
-              echo "FAIL: OpenCL backend should always build"
-              exit 1
-            fi
-            if [[ "$HAS_CUDA" -gt 0 ]]; then
-              echo "PASS: CUDA backend built (GPU runner)"
-            else
-              echo "INFO: CUDA skipped (no GPU on CI runner — expected)"
-            fi
+            [[ "$HAS_OPENCL" -gt 0 ]] || { echo "FAIL: OpenCL must build"; exit 1; }
           else
-            # Arch/Alpine: should have OpenCL, must NOT have CUDA
-            if [[ "$HAS_OPENCL" -eq 0 ]]; then
-              echo "FAIL: OpenCL backend must build"
-              exit 1
-            fi
-            if [[ "$HAS_CUDA" -gt 0 ]]; then
-              echo "FAIL: CUDA backend must NOT build on ${{ matrix.distro }}"
-              exit 1
-            fi
-            echo "PASS: OpenCL only (CUDA correctly skipped)"
+            [[ "$HAS_OPENCL" -gt 0 ]] || { echo "FAIL: OpenCL must build"; exit 1; }
+            [[ "$HAS_CUDA" -eq 0 ]]   || { echo "FAIL: CUDA must NOT build on ${{ matrix.distro }}"; exit 1; }
+            echo "PASS: OpenCL only"
           fi
 
-  # ── Rust-only check (no GPU CMake needed) ─────────────────────────
+      - name: upload native libs
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.distro }}
+          path: |
+            engine/target/release/libchunkup_core.so
+            build/native-gpu/*.so
+            build/native/*.so
+          if-no-files-found: ignore
+
+  # ── Rust check (cargo check + clippy) ──────────────────────────────
   rust-check:
     name: "rust check"
     runs-on: ubuntu-24.04
@@ -106,7 +92,7 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: install cc deps
-        run: sudo apt-get update && sudo apt-get install -y gcc
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc
       - name: cargo check (core)
         run: cargo check --manifest-path engine/chunkup-core/Cargo.toml
       - name: cargo check (cpu)
@@ -117,31 +103,57 @@ jobs:
           cargo clippy --manifest-path engine/chunkup-core/Cargo.toml -- -D warnings 2>&1 | head -100
           cargo clippy --manifest-path engine/chunkup-cpu/Cargo.toml -- -D warnings 2>&1 | head -100
 
-  # ── Gradle build (mod jar) ────────────────────────────────────────
-  gradle-build:
-    name: "gradle build"
+  # ── Full JAR (native + java) on Ubuntu ─────────────────────────────
+  full-jar:
+    name: "full JAR (ubuntu)"
     runs-on: ubuntu-24.04
+    needs: [linux-native]
     steps:
       - uses: actions/checkout@v6
       - uses: gradle/actions/wrapper-validation@v6
+
       - uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
-      - name: chmod gradlew
-        run: chmod +x ./gradlew
-      - name: build (java only)
-        run: ./gradlew build --no-daemon -x buildNativeEngine -x buildGpuNativeEngine -x copyNativeLibraries -x stageNativeForJar
+
+      - name: install native deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake g++ ocl-icd-opencl-dev pkg-config
+
+      - name: install rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: build native engine
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          bash scripts/build-engine.sh
+
+      - name: gradle build (with native)
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build --no-daemon -x buildSettingsNative
+
+      - name: verify JAR contents
+        run: |
+          echo "=== JAR size ==="
+          ls -lh build/libs/chunkup-*.jar
+          echo "=== Native libs in JAR ==="
+          jar tf build/libs/chunkup-1.0.0.jar | grep -E '\.(so|dylib)$' | sort
+
       - uses: actions/upload-artifact@v7
         with:
-          name: chunkup-jar
+          name: chunkup-full-jar
           path: build/libs/
 
   # ── Summary gate ──────────────────────────────────────────────────
   summary:
     name: "CI summary"
     runs-on: ubuntu-24.04
-    needs: [linux-native, rust-check, gradle-build]
+    needs: [linux-native, rust-check, full-jar]
     if: always()
     steps:
       - name: results
@@ -149,14 +161,14 @@ jobs:
           echo "════════════════════════════════════"
           echo "  linux-native:   ${{ needs.linux-native.result }}"
           echo "  rust-check:     ${{ needs.rust-check.result }}"
-          echo "  gradle-build:   ${{ needs.gradle-build.result }}"
+          echo "  full-jar:       ${{ needs.full-jar.result }}"
           echo "════════════════════════════════════"
           if [[ "${{ needs.rust-check.result }}" != "success" ]] ||
-             [[ "${{ needs.gradle-build.result }}" != "success" ]]; then
+             [[ "${{ needs.full-jar.result }}" != "success" ]]; then
             echo "FAIL: critical job(s) failed"
             exit 1
           fi
           if [[ "${{ needs.linux-native.result }}" == "failure" ]]; then
             echo "WARN: some native jobs failed (alpine is allowed)"
           fi
-          echo "ALL GREEN (alpine non-blocking)"
+          echo "ALL GREEN"
