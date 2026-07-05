@@ -24,38 +24,41 @@ fi
 
 echo "==> Detected: ID=$DISTRO_ID  ID_LIKE=$DISTRO_LIKE"
 
-# Common build tools needed on all distros
-COMMON="cmake gcc-c++ cargo rust"
-
 # ── RHEL / Fedora / CentOS / Rocky / AlmaLinux ─────────────────────
 install_rhel() {
     echo "==> RHEL family: installing with dnf"
-    $SUDO dnf install -y cmake gcc-c++ cargo rust
+    $SUDO dnf install -y cmake gcc-c++ curl
+    # Rust via rustup
+    if ! command -v rustc &>/dev/null; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        . "$HOME/.cargo/env"
+    fi
     # CUDA toolkit (from NVIDIA repo — user must have cuda repo configured)
     if ! command -v nvcc &>/dev/null; then
-        echo "==> CUDA toolkit not found."
-        echo "    Install from NVIDIA repo: https://developer.nvidia.com/cuda-downloads"
-        echo "    Or skip: pacman/apk distros use OpenCL only."
+        echo "==> CUDA toolkit not found (expected in CI — no GPU)."
     fi
     # OpenCL dev headers
-    if ! rpm -q ocl-icd-devel &>/dev/null; then
-        $SUDO dnf install -y ocl-icd-devel
-    fi
+    $SUDO dnf install -y ocl-icd-devel 2>/dev/null || true
     echo "==> RHEL dependencies installed"
 }
 
 # ── Debian / Ubuntu / Mint ─────────────────────────────────────────
 install_deb() {
     echo "==> Debian family: installing with apt"
-    $SUDO apt update
-    $SUDO apt install -y cmake g++ cargo rustc
+    export DEBIAN_FRONTEND=noninteractive
+    $SUDO apt update -qq
+    $SUDO apt install -y -qq cmake g++ curl pkg-config
+    # Rust via rustup (more reliable than distro packages in CI)
+    if ! command -v rustc &>/dev/null; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        . "$HOME/.cargo/env"
+    fi
     # OpenCL dev headers
-    $SUDO apt install -y ocl-icd-opencl-dev
+    $SUDO apt install -y -qq ocl-icd-opencl-dev 2>/dev/null || \
+    $SUDO apt install -y -qq opencl-headers ocl-icd-libopencl1
     # CUDA toolkit — user must install manually from NVIDIA
     if ! command -v nvcc &>/dev/null; then
-        echo "==> CUDA toolkit not found."
-        echo "    Install: sudo apt install nvidia-cuda-toolkit"
-        echo "    Or from NVIDIA: https://developer.nvidia.com/cuda-downloads"
+        echo "==> CUDA toolkit not found (expected in CI — no GPU)."
     fi
     echo "==> Debian dependencies installed"
 }
@@ -74,7 +77,12 @@ install_arch() {
 # ── Alpine (apk) ───────────────────────────────────────────────────
 install_alpine() {
     echo "==> Alpine: installing with apk"
-    $SUDO apk add bash cmake g++ rust cargo
+    $SUDO apk add bash cmake g++ curl
+    # Rust via rustup (Alpine's rust/cargo packages are often outdated)
+    if ! command -v rustc &>/dev/null; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        . "$HOME/.cargo/env"
+    fi
     # OpenCL (CUDA NOT supported on Alpine — use OpenCL)
     $SUDO apk add opencl-headers opencl-icd-loader-dev
     echo "==> NOTE: Alpine uses OpenCL only (no CUDA support)"

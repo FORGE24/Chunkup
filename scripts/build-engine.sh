@@ -101,6 +101,10 @@ cmake_build() {
 # ── check prerequisites ────────────────────────────────────────────
 check_prereqs() {
     local missing=()
+    # Ensure cargo/rustc are in PATH (rustup may have been installed in a prior step)
+    if [[ -f "$HOME/.cargo/env" ]]; then
+        . "$HOME/.cargo/env"
+    fi
     if ! command -v cmake &>/dev/null; then
         missing+=("cmake")
     fi

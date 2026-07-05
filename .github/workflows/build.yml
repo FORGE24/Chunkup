@@ -44,6 +44,7 @@ jobs:
 
       - name: build native engine
         run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
           bash scripts/build-engine.sh 2>&1 | tee build-native.log
           echo "=== Build log ==="
           cat build-native.log
