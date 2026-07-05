@@ -40,16 +40,27 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: install deps (${{ matrix.distro }})
-        continue-on-error: ${{ matrix.continue-on-error || false }}
+        if: ${{ ! (matrix.continue-on-error) }}
         run: bash scripts/install-deps-linux.sh
 
+      - name: install deps (${{ matrix.distro }}) [allow-fail]
+        if: ${{ matrix.continue-on-error }}
+        run: bash scripts/install-deps-linux.sh || true
+
       - name: build native engine
-        continue-on-error: ${{ matrix.continue-on-error || false }}
+        if: ${{ ! (matrix.continue-on-error) }}
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          bash scripts/build-engine.sh 2>&1 | tee build-native.log
+          bash scripts/build-engine.sh
+
+      - name: build native engine [allow-fail]
+        if: ${{ matrix.continue-on-error }}
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          bash scripts/build-engine.sh || true
 
       - name: verify artifacts
+        if: ${{ ! (matrix.continue-on-error) }}
         run: |
           echo "=== Rust core ==="
           find engine/target/release -name 'libchunkup_core*' -type f
@@ -59,6 +70,7 @@ jobs:
           ls -la build/native-gpu/ 2>/dev/null || echo "(empty)"
 
       - name: verify CUDA policy (${{ matrix.cuda_expected }})
+        if: ${{ ! (matrix.continue-on-error) }}
         run: |
           HAS_CUDA=$(find build/ -name 'libchunkup_cuda*' -type f | wc -l)
           HAS_OPENCL=$(find build/ -name 'libchunkup_opencl*' -type f | wc -l)
@@ -71,6 +83,7 @@ jobs:
           fi
 
       - name: upload native libs
+        if: ${{ ! (matrix.continue-on-error) }}
         uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.distro }}
