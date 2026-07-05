@@ -169,7 +169,8 @@ build_cuda() {
         "${generator_args[@]}" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CUDA_COMPILER="$nvcc" \
-        -DCUDAToolkit_ROOT="$cuda_dir"; then
+        -DCUDAToolkit_ROOT="$cuda_dir" \
+        -DCMAKE_CUDA_HOST_COMPILER="$(command -v gcc-15 2>/dev/null || command -v gcc-14 2>/dev/null || command -v gcc)"; then
         copy_if_exists "$ROOT/build/cuda/libchunkup_cuda.so"
         echo "==> CUDA backend built successfully"
     fi

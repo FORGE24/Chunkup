@@ -27,7 +27,7 @@ echo "==> Detected: ID=$DISTRO_ID  ID_LIKE=$DISTRO_LIKE"
 # ── RHEL / Fedora / CentOS / Rocky / AlmaLinux ─────────────────────
 install_rhel() {
     echo "==> RHEL family: installing with dnf"
-    $SUDO dnf install -y cmake gcc-c++ curl
+    $SUDO dnf install -y cmake gcc-c++ curl gcc15 gcc15-c++
     # Rust via rustup
     if ! command -v rustc &>/dev/null; then
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
