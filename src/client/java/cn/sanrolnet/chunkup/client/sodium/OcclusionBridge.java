@@ -15,7 +15,16 @@ public final class OcclusionBridge {
 			fullyVisible.setAll(true);
 			return fullyVisible;
 		}
-		return decode(visibilityData[0]);
+		long merged = 0L;
+		for (long word : visibilityData) {
+			merged |= word;
+		}
+		if (merged == 0L) {
+			VisibilitySet fullyVisible = new VisibilitySet();
+			fullyVisible.setAll(true);
+			return fullyVisible;
+		}
+		return decode(merged);
 	}
 
 	private static VisibilitySet decode(long visibilityData) {

@@ -2,6 +2,7 @@ package cn.sanrolnet.chunkup.bridge
 
 import cn.sanrolnet.chunkup.Chunkup
 import cn.sanrolnet.chunkup.minecraft.generation.ChunkDensityFill
+import cn.sanrolnet.chunkup.minecraft.generation.ChunkLoadResult
 import cn.sanrolnet.chunkup.render.SectionBuildPayload
 import cn.sanrolnet.chunkup.render.SectionKind
 import org.slf4j.LoggerFactory
@@ -36,6 +37,11 @@ object JniBridge : EngineBridge {
 		return nativeInitialize()
 	}
 
+	override fun activeComputeBackend(): String {
+		if (!loaded || !nativeIsAvailable()) return "none"
+		return nativeGetActiveBackend()
+	}
+
 	override fun shutdown() {
 		if (!loaded) return
 		nativeShutdown()
@@ -48,6 +54,61 @@ object JniBridge : EngineBridge {
 	): Boolean {
 		if (!loaded) return false
 		return nativeOnChunkGeneration(stage.ordinal, chunkX, chunkZ)
+	}
+
+	override fun processChunkLoad(
+		stage: cn.sanrolnet.chunkup.minecraft.generation.ChunkGenerationStage,
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		density: FloatArray,
+	): ChunkLoadResult? {
+		if (!loaded) return null
+		val raw = nativeProcessChunkLoad(
+			stage.ordinal,
+			chunkX,
+			chunkZ,
+			minY,
+			height,
+			worldSeed,
+			density,
+		) ?: return null
+		return decodeChunkLoadResult(raw)
+	}
+
+	override fun processChunkLoadBatch(
+		stage: cn.sanrolnet.chunkup.minecraft.generation.ChunkGenerationStage,
+		chunkXs: IntArray,
+		chunkZs: IntArray,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		densities: FloatArray,
+	): List<ChunkLoadResult?>? {
+		if (!loaded || chunkXs.isEmpty() || chunkXs.size != chunkZs.size) return null
+		val raw = nativeProcessChunkLoadBatch(
+			stage.ordinal,
+			minY,
+			height,
+			worldSeed,
+			chunkXs,
+			chunkZs,
+			densities,
+		) as? Array<*> ?: return null
+		if (raw.size != chunkXs.size) return null
+		return raw.map { element ->
+			if (element == null) null else decodeChunkLoadResult(element)
+		}
+	}
+
+	private fun decodeChunkLoadResult(raw: Any): ChunkLoadResult? {
+		if (raw !is Array<*>) return null
+		if (raw.size < 2) return null
+		val skylight = raw[0] as? ByteArray ?: return null
+		val faceMask = raw[1] as? ByteArray ?: return null
+		return ChunkLoadResult(skylight, faceMask)
 	}
 
 	override fun generateChunkDensity(
@@ -102,10 +163,35 @@ object JniBridge : EngineBridge {
 	private external fun nativeInitialize(): Boolean
 
 	@JvmStatic
+	private external fun nativeGetActiveBackend(): String
+
+	@JvmStatic
 	private external fun nativeShutdown()
 
 	@JvmStatic
 	private external fun nativeOnChunkGeneration(stageOrdinal: Int, chunkX: Int, chunkZ: Int): Boolean
+
+	@JvmStatic
+	private external fun nativeProcessChunkLoad(
+		stageOrdinal: Int,
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		density: FloatArray,
+	): Any?
+
+	@JvmStatic
+	private external fun nativeProcessChunkLoadBatch(
+		stageOrdinal: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		chunkXs: IntArray,
+		chunkZs: IntArray,
+		densities: FloatArray,
+	): Any?
 
 	@JvmStatic
 	private external fun nativeGenerateChunkDensity(

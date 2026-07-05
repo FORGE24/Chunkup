@@ -1,30 +1,156 @@
-# Automatically build the project and run any configured tests for every push
-# and submitted pull request. This can help catch issues that only occur on
-# certain platforms or Java versions, and provides a first line of defence
-# against bad commits.
-
+# Chunkup CI — FORGE24 Linux multi-distro build
+# Policy:
+#   RHEL/Debian → CUDA + OpenCL (CUDA优先)
+#   Arch/Alpine  → OpenCL ONLY (强制跳过CUDA)
 name: build
+
 on: [pull_request, push]
 
 jobs:
-  build:
+  # ── Linux native engine + GPU backends (multi-distro matrix) ──────
+  linux-native:
+    name: "native (${{ matrix.distro }})"
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: debian
+            image: debian:testing
+            cuda_expected: yes
+          - distro: ubuntu
+            image: ubuntu:24.04
+            cuda_expected: yes
+          - distro: fedora
+            image: fedora:41
+            cuda_expected: yes
+          - distro: arch
+            image: archlinux:latest
+            cuda_expected: no
+          - distro: alpine
+            image: alpine:edge
+            cuda_expected: no
+
+    container:
+      image: ${{ matrix.image }}
+      options: --privileged  # needed for some package managers
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: install deps (${{ matrix.distro }})
+        run: bash scripts/install-deps-linux.sh
+
+      - name: build native engine
+        run: |
+          bash scripts/build-engine.sh 2>&1 | tee build-native.log
+          echo "=== Build log ==="
+          cat build-native.log
+
+      - name: verify artifacts exist
+        run: |
+          echo "=== Native output ==="
+          ls -la build/native-gpu/ || echo "(empty)"
+          echo ""
+          echo "=== Check: Rust core lib ==="
+          find engine/target/release -name 'libchunkup_core*' -type f
+          echo ""
+          echo "=== Check: GPU backends ==="
+          find build/ -name 'libchunkup_cuda*' -o -name 'libchunkup_opencl*' | sort
+
+      - name: verify CUDA policy (${{ matrix.cuda_expected }})
+        run: |
+          HAS_CUDA=$(find build/ -name 'libchunkup_cuda*' -type f | wc -l)
+          HAS_OPENCL=$(find build/ -name 'libchunkup_opencl*' -type f | wc -l)
+
+          echo "CUDA .so found:  $HAS_CUDA  (expected: ${{ matrix.cuda_expected }})"
+          echo "OpenCL .so found: $HAS_OPENCL"
+
+          if [[ "${{ matrix.cuda_expected }}" == "yes" ]]; then
+            # RHEL/Debian: should build OpenCL; CUDA builds only if nvcc found
+            if [[ "$HAS_OPENCL" -eq 0 ]]; then
+              echo "FAIL: OpenCL backend should always build"
+              exit 1
+            fi
+            if [[ "$HAS_CUDA" -gt 0 ]]; then
+              echo "PASS: CUDA backend built (GPU runner)"
+            else
+              echo "INFO: CUDA skipped (no GPU on CI runner — expected)"
+            fi
+          else
+            # Arch/Alpine: should have OpenCL, must NOT have CUDA
+            if [[ "$HAS_OPENCL" -eq 0 ]]; then
+              echo "FAIL: OpenCL backend must build"
+              exit 1
+            fi
+            if [[ "$HAS_CUDA" -gt 0 ]]; then
+              echo "FAIL: CUDA backend must NOT build on ${{ matrix.distro }}"
+              exit 1
+            fi
+            echo "PASS: OpenCL only (CUDA correctly skipped)"
+          fi
+
+  # ── Rust-only check (no GPU CMake needed) ─────────────────────────
+  rust-check:
+    name: "rust check"
     runs-on: ubuntu-24.04
     steps:
-      - name: checkout repository
-        uses: actions/checkout@v6
-      - name: validate gradle wrapper
-        uses: gradle/actions/wrapper-validation@v6
-      - name: setup jdk
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v6
+      - name: install rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: install cc deps
+        run: sudo apt-get update && sudo apt-get install -y gcc
+      - name: cargo check (core)
+        run: cargo check --manifest-path engine/chunkup-core/Cargo.toml
+      - name: cargo check (cpu)
+        run: cargo check --manifest-path engine/chunkup-cpu/Cargo.toml
+      - name: cargo clippy
+        run: |
+          rustup component add clippy
+          cargo clippy --manifest-path engine/chunkup-core/Cargo.toml -- -D warnings 2>&1 | head -100
+          cargo clippy --manifest-path engine/chunkup-cpu/Cargo.toml -- -D warnings 2>&1 | head -100
+
+  # ── Gradle build (mod jar) ────────────────────────────────────────
+  gradle-build:
+    name: "gradle build"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: gradle/actions/wrapper-validation@v6
+      - uses: actions/setup-java@v5
         with:
-          java-version: '25'
-          distribution: 'microsoft'
-      - name: make gradle wrapper executable
+          java-version: '21'
+          distribution: 'temurin'
+      - name: chmod gradlew
         run: chmod +x ./gradlew
-      - name: build
-        run: ./gradlew build
-      - name: capture build artifacts
-        uses: actions/upload-artifact@v7
+      - name: build (java only)
+        run: ./gradlew build --no-daemon -x buildNativeEngine -x buildGpuNativeEngine -x copyNativeLibraries -x stageNativeForJar
+      - uses: actions/upload-artifact@v7
         with:
-          name: Artifacts
+          name: chunkup-jar
           path: build/libs/
+
+  # ── Summary gate ──────────────────────────────────────────────────
+  summary:
+    name: "CI summary"
+    runs-on: ubuntu-24.04
+    needs: [linux-native, rust-check, gradle-build]
+    if: always()
+    steps:
+      - name: results
+        run: |
+          echo "════════════════════════════════════"
+          echo "  linux-native:   ${{ needs.linux-native.result }}"
+          echo "  rust-check:     ${{ needs.rust-check.result }}"
+          echo "  gradle-build:   ${{ needs.gradle-build.result }}"
+          echo "════════════════════════════════════"
+          if [[ "${{ needs.linux-native.result }}" != "success" ]] ||
+             [[ "${{ needs.rust-check.result }}" != "success" ]] ||
+             [[ "${{ needs.gradle-build.result }}" != "success" ]]; then
+            echo "FAIL: one or more jobs failed"
+            exit 1
+          fi
+          echo "ALL GREEN"

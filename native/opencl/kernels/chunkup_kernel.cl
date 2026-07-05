@@ -152,3 +152,149 @@ __kernel void chunkup_kernel_skylight(
         }
     }
 }
+
+inline float chunkup_density_sample_cl(
+    __global const float* density,
+    int lx,
+    int ly,
+    int lz,
+    int height,
+    uint stride_y
+) {
+    if (lx < 0 || lz < 0 || lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE) {
+        return -1.0f;
+    }
+    if (ly < 0 || ly >= height) {
+        return -1.0f;
+    }
+    return density[chunkup_block_index(lx, ly, lz, stride_y)];
+}
+
+__kernel void chunkup_kernel_face_cull(
+    __global const float* density,
+    __global uchar* face_mask,
+    int height,
+    uint stride_y
+) {
+    const int lx = (int)get_global_id(0);
+    const int ly = (int)get_global_id(1);
+    const int lz = (int)get_global_id(2);
+
+    if (lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE || ly >= height) {
+        return;
+    }
+
+    const uint idx = chunkup_block_index(lx, ly, lz, stride_y);
+    if (!chunkup_is_solid(density[idx])) {
+        face_mask[idx] = 0;
+        return;
+    }
+
+    uchar mask = 0;
+    if (!chunkup_is_solid(chunkup_density_sample_cl(density, lx, ly + 1, lz, height, stride_y))) {
+        mask |= 1 << 0;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(density, lx, ly - 1, lz, height, stride_y))) {
+        mask |= 1 << 1;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(density, lx, ly, lz - 1, height, stride_y))) {
+        mask |= 1 << 2;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(density, lx, ly, lz + 1, height, stride_y))) {
+        mask |= 1 << 3;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(density, lx - 1, ly, lz, height, stride_y))) {
+        mask |= 1 << 4;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(density, lx + 1, ly, lz, height, stride_y))) {
+        mask |= 1 << 5;
+    }
+    face_mask[idx] = mask;
+}
+
+__kernel void chunkup_kernel_skylight_batch(
+    __global const float* density,
+    __global uchar* skylight,
+    int height,
+    uint stride_y,
+    uint blocks_per_chunk,
+    int batch_count
+) {
+    const int chunk_idx = (int)get_global_id(2);
+    if (chunk_idx >= batch_count) {
+        return;
+    }
+
+    const int lx = (int)get_global_id(0);
+    const int lz = (int)get_global_id(1);
+    if (lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE) {
+        return;
+    }
+
+    const __global float* chunk_density = density + (uint)chunk_idx * blocks_per_chunk;
+    __global uchar* chunk_light = skylight + (uint)chunk_idx * blocks_per_chunk;
+
+    int light = 15;
+    for (int ly = height - 1; ly >= 0; --ly) {
+        const uint idx = chunkup_block_index(lx, ly, lz, stride_y);
+        if (chunkup_is_solid(chunk_density[idx])) {
+            light = 0;
+        }
+        chunk_light[idx] = (uchar)light;
+        if (light > 0) {
+            light -= 1;
+        }
+    }
+}
+
+__kernel void chunkup_kernel_face_cull_batch(
+    __global const float* density,
+    __global uchar* face_mask,
+    int height,
+    uint stride_y,
+    uint blocks_per_chunk,
+    int batch_count
+) {
+    const int flat_z = (int)get_global_id(2);
+    const int chunk_idx = flat_z / height;
+    const int ly = flat_z % height;
+    if (chunk_idx >= batch_count) {
+        return;
+    }
+
+    const int lx = (int)get_global_id(0);
+    const int lz = (int)get_global_id(1);
+    if (lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE || ly >= height) {
+        return;
+    }
+
+    const __global float* chunk_density = density + (uint)chunk_idx * blocks_per_chunk;
+    __global uchar* chunk_faces = face_mask + (uint)chunk_idx * blocks_per_chunk;
+
+    const uint idx = chunkup_block_index(lx, ly, lz, stride_y);
+    if (!chunkup_is_solid(chunk_density[idx])) {
+        chunk_faces[idx] = 0;
+        return;
+    }
+
+    uchar mask = 0;
+    if (!chunkup_is_solid(chunkup_density_sample_cl(chunk_density, lx, ly + 1, lz, height, stride_y))) {
+        mask |= 1 << 0;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(chunk_density, lx, ly - 1, lz, height, stride_y))) {
+        mask |= 1 << 1;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(chunk_density, lx, ly, lz - 1, height, stride_y))) {
+        mask |= 1 << 2;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(chunk_density, lx, ly, lz + 1, height, stride_y))) {
+        mask |= 1 << 3;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(chunk_density, lx - 1, ly, lz, height, stride_y))) {
+        mask |= 1 << 4;
+    }
+    if (!chunkup_is_solid(chunkup_density_sample_cl(chunk_density, lx + 1, ly, lz, height, stride_y))) {
+        mask |= 1 << 5;
+    }
+    chunk_faces[idx] = mask;
+}

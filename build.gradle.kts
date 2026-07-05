@@ -47,6 +47,8 @@ loom {
 			val nativeDir = layout.buildDirectory.dir("native").get().asFile.absolutePath
 			vmArg("-Djava.library.path=$nativeDir")
 			vmArg("-Dchunkup.native.dir=$nativeDir")
+			vmArg("-Dchunkup.gpuSections=true")
+			vmArg("-DRUST_LOG=warn,chunkup_core=warn")
 		}
 	}
 }
@@ -83,6 +85,14 @@ tasks.processResources {
 
 tasks.withType<JavaCompile>().configureEach {
 	options.release = 17
+}
+
+// Java Mixin 引用 Kotlin 类，必须先编译 Kotlin
+tasks.named("compileJava") {
+	dependsOn(tasks.named("compileKotlin"))
+}
+tasks.named("compileClientJava") {
+	dependsOn(tasks.named("compileClientKotlin"))
 }
 
 kotlin {
@@ -158,6 +168,20 @@ fun nativePlatformDirectory(): String {
 	}
 }
 
+tasks.register<Exec>("buildSettingsNative") {
+	group = "chunkup"
+	description = "Build Qt settings JNI DLL (chunkup_settings.dll)"
+	onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows }
+	commandLine(
+		"powershell",
+		"-NoProfile",
+		"-ExecutionPolicy", "Bypass",
+		"-File",
+		project.file("scripts/build-settings.ps1").absolutePath,
+		"-Toolchain", "MinGW",
+	)
+}
+
 val nativeOutputDir = layout.buildDirectory.dir("native")
 val rustReleaseDir = layout.projectDirectory.dir("engine/target/release")
 val nativeGpuDir = layout.projectDirectory.dir("build/native-gpu")
@@ -166,6 +190,9 @@ tasks.register<Copy>("copyNativeLibraries") {
 	group = "chunkup"
 	description = "Assemble native libraries into build/native and stage for jar embedding"
 	dependsOn("buildNativeEngine")
+	if (org.gradle.internal.os.OperatingSystem.current().isWindows) {
+		dependsOn("buildSettingsNative")
+	}
 
 	from(rustReleaseDir) {
 		include("chunkup_core.dll", "libchunkup_core.so", "libchunkup_core.dylib")
@@ -190,7 +217,7 @@ tasks.register<Copy>("stageNativeForJar") {
 	description = "Copy build/native into resources path for jar packaging"
 	dependsOn("copyNativeLibraries")
 	from(nativeOutputDir) {
-		include("*.dll", "*.so", "*.dylib")
+		include("**/*")
 	}
 	into(layout.buildDirectory.dir("generated/native/${nativePlatformDirectory()}"))
 	duplicatesStrategy = DuplicatesStrategy.INCLUDE

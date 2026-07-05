@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 use backend::{BackendKind, EngineContext};
 use kernel::{KernelJob, Stage};
+use kernel::types::BLOCKS_PER_SECTION;
 use kernel::workspace::KernelWorkspace;
 
 static ENGINE: Mutex<Option<EngineContext>> = Mutex::new(None);
@@ -76,7 +77,7 @@ pub fn dispatch_chunk_stage(chunk_x: i32, chunk_z: i32, stage_ordinal: i32) -> b
     }
 
     ctx.kernel().dispatch(&job).map(|result| {
-        log::info!(
+        log::debug!(
             "chunkup generation backend={} stage={:?} chunk=[{}, {}] ops=0x{:x}",
             ctx.active_backend().name(),
             stage,
@@ -115,7 +116,7 @@ pub fn generate_chunk_density(
         return None;
     }
 
-    log::info!(
+    log::debug!(
         "chunkup density fill backend={} chunk=[{}, {}] min_y={} height={}",
         ctx.active_backend().name(),
         chunk_x,
@@ -125,6 +126,135 @@ pub fn generate_chunk_density(
     );
 
     Some((workspace.density, workspace.fluid))
+}
+
+pub fn process_chunk_load(
+    chunk_x: i32,
+    chunk_z: i32,
+    stage_ordinal: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+    density: &[f32],
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    if height <= 0 {
+        return None;
+    }
+
+    let stage = Stage::from_ordinal(stage_ordinal)?;
+    let seed = mix_world_seed(world_seed);
+    let mut job = KernelJob::for_chunk_stage(chunk_x, chunk_z, stage, seed);
+    job.min_y = min_y;
+    job.height = height;
+
+    if job.op_mask == 0 {
+        return Some((Vec::new(), Vec::new()));
+    }
+
+    let mut workspace = KernelWorkspace::for_job(&job);
+    if density.len() != workspace.density.len() {
+        log::warn!(
+            "chunkup chunk load density size mismatch: got {} expected {}",
+            density.len(),
+            workspace.density.len()
+        );
+        return None;
+    }
+    workspace.density.copy_from_slice(density);
+
+    let Ok(slot) = ENGINE.lock() else {
+        return None;
+    };
+    let ctx = slot.as_ref()?;
+
+    ctx.kernel().dispatch_with_workspace(&job, &mut workspace).ok()?;
+
+    log::debug!(
+        "chunkup chunk load backend={} stage={:?} chunk=[{}, {}] min_y={} height={}",
+        ctx.active_backend().name(),
+        stage,
+        chunk_x,
+        chunk_z,
+        min_y,
+        height
+    );
+
+    Some((workspace.skylight, workspace.face_mask))
+}
+
+pub fn process_chunk_load_batch(
+    stage_ordinal: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+    chunk_coords: &[(i32, i32)],
+    densities: &[f32],
+) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+    if height <= 0 || chunk_coords.is_empty() {
+        return None;
+    }
+
+    let stage = Stage::from_ordinal(stage_ordinal)?;
+    let seed = mix_world_seed(world_seed);
+    let mut template_job = KernelJob::for_chunk_stage(0, 0, stage, seed);
+    template_job.min_y = min_y;
+    template_job.height = height;
+
+    if template_job.op_mask == 0 {
+        return Some(vec![(Vec::new(), Vec::new()); chunk_coords.len()]);
+    }
+
+    let batch_count = chunk_coords.len() as i32;
+    let blocks_per_chunk = BLOCKS_PER_SECTION as usize * height as usize;
+    let expected_density = blocks_per_chunk * chunk_coords.len();
+    if densities.len() != expected_density {
+        log::warn!(
+            "chunkup batch density size mismatch: got {} expected {}",
+            densities.len(),
+            expected_density
+        );
+        return None;
+    }
+
+    let mut host_density = densities.to_vec();
+    let mut host_skylight = vec![0u8; blocks_per_chunk * chunk_coords.len()];
+    let mut host_face_mask = vec![0u8; blocks_per_chunk * chunk_coords.len()];
+
+    let Ok(slot) = ENGINE.lock() else {
+        return None;
+    };
+    let ctx = slot.as_ref()?;
+
+    ctx.kernel()
+        .dispatch_batch(
+            &template_job,
+            batch_count,
+            &mut host_density,
+            &mut host_skylight,
+            &mut host_face_mask,
+            BLOCKS_PER_SECTION * height as u32,
+        )
+        .ok()?;
+
+    log::debug!(
+        "chunkup chunk load batch backend={} stage={:?} count={} min_y={} height={}",
+        ctx.active_backend().name(),
+        stage,
+        batch_count,
+        min_y,
+        height
+    );
+
+    let mut outputs = Vec::with_capacity(chunk_coords.len());
+    for i in 0..chunk_coords.len() {
+        let start = i * blocks_per_chunk;
+        let end = start + blocks_per_chunk;
+        outputs.push((
+            host_skylight[start..end].to_vec(),
+            host_face_mask[start..end].to_vec(),
+        ));
+    }
+    Some(outputs)
 }
 
 fn mix_world_seed(world_seed: i64) -> u32 {

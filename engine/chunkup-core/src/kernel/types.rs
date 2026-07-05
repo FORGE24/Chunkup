@@ -124,4 +124,13 @@ extern "C" {
         buffers: *mut KernelBuffers,
         result: *mut KernelResult,
     ) -> c_int;
+    pub fn chunkup_kernel_dispatch_cpu_batch(
+        template_job: *const KernelJob,
+        batch_count: i32,
+        host_density: *mut f32,
+        host_skylight: *mut u8,
+        host_face_mask: *mut u8,
+        blocks_per_chunk: u32,
+        result: *mut KernelResult,
+    ) -> c_int;
 }

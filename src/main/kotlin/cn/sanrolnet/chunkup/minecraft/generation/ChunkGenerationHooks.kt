@@ -43,7 +43,11 @@ object ChunkGenerationHooks {
 
 	@JvmStatic
 	fun dispatch(context: ChunkGenerationContext) {
-		engine?.onChunkGeneration(context.stage, context.chunkX, context.chunkZ)
+		val bridge = engine
+		if (bridge != null && ChunkLoadPipeline.enqueue(context, bridge)) {
+			return
+		}
+		bridge?.onChunkGeneration(context.stage, context.chunkX, context.chunkZ)
 		notify(context)
 	}
 

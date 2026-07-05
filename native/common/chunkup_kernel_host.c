@@ -10,8 +10,8 @@ uint32_t chunkup_kernel_ops_for_stage(uint32_t stage) {
             return CHUNKUP_OP_NOISE_FILL;
         case CHUNKUP_STAGE_GENERATED:
             return CHUNKUP_OP_SKYLIGHT | CHUNKUP_OP_FACE_CULL;
-        case CHUNKUP_STAGE_LOADED:
-            return 0u;
+		case CHUNKUP_STAGE_LOADED:
+			return 0u;
         default:
             return 0u;
     }

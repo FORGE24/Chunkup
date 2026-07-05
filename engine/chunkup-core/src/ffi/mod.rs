@@ -6,7 +6,7 @@ use jni::sys::{jboolean, jbyte, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 use crate::section::{self, SectionMeshResult};
-use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, initialize, is_available, shutdown};
+use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, initialize, is_available, process_chunk_load, process_chunk_load_batch, shutdown};
 use crate::backend::set_native_library_directory;
 
 static SECTION_BUFFERS: LazyLock<Mutex<HashMap<isize, Vec<u8>>>> =
@@ -38,6 +38,20 @@ pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeIsAvaila
         JNI_TRUE
     } else {
         JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGetActiveBackend(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jni::sys::jstring {
+    let name = crate::active_backend()
+        .map(|b| b.name())
+        .unwrap_or("none");
+    match env.new_string(name) {
+        Ok(s) => s.into_raw(),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 
@@ -129,6 +143,133 @@ pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGenerate
     }
 
     obj_array.into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeProcessChunkLoad(
+    mut env: JNIEnv,
+    _class: JClass,
+    stage_ordinal: i32,
+    chunk_x: i32,
+    chunk_z: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+    density: jni::objects::JFloatArray,
+) -> jni::sys::jobject {
+    let density_vec = match read_float_array(&mut env, &density) {
+        Ok(data) => data,
+        Err(_) => return JObject::null().into_raw(),
+    };
+
+    let Some((skylight, face_mask)) = process_chunk_load(
+        chunk_x,
+        chunk_z,
+        stage_ordinal,
+        min_y,
+        height,
+        world_seed,
+        &density_vec,
+    ) else {
+        return JObject::null().into_raw();
+    };
+
+    let len = skylight.len();
+    if len == 0 || face_mask.len() != len {
+        return JObject::null().into_raw();
+    }
+
+    let Ok(skylight_array) = env.new_byte_array(len as i32) else {
+        return JObject::null().into_raw();
+    };
+    let skylight_i8: Vec<i8> = skylight.iter().map(|b| *b as i8).collect();
+    if env.set_byte_array_region(&skylight_array, 0, &skylight_i8).is_err() {
+        return JObject::null().into_raw();
+    }
+
+    let Ok(face_array) = env.new_byte_array(len as i32) else {
+        return JObject::null().into_raw();
+    };
+    let face_i8: Vec<i8> = face_mask.iter().map(|b| *b as i8).collect();
+    if env.set_byte_array_region(&face_array, 0, &face_i8).is_err() {
+        return JObject::null().into_raw();
+    }
+
+    let obj_array = match env.new_object_array(2, "java/lang/Object", JObject::null()) {
+        Ok(arr) => arr,
+        Err(_) => return JObject::null().into_raw(),
+    };
+    if env.set_object_array_element(&obj_array, 0, skylight_array).is_err() {
+        return JObject::null().into_raw();
+    }
+    if env.set_object_array_element(&obj_array, 1, face_array).is_err() {
+        return JObject::null().into_raw();
+    }
+
+    obj_array.into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeProcessChunkLoadBatch(
+    mut env: JNIEnv,
+    _class: JClass,
+    stage_ordinal: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+    chunk_xs: jni::objects::JIntArray,
+    chunk_zs: jni::objects::JIntArray,
+    densities: jni::objects::JFloatArray,
+) -> jni::sys::jobject {
+    let xs = match read_int_array(&mut env, &chunk_xs) {
+        Ok(data) => data,
+        Err(_) => return JObject::null().into_raw(),
+    };
+    let zs = match read_int_array(&mut env, &chunk_zs) {
+        Ok(data) => data,
+        Err(_) => return JObject::null().into_raw(),
+    };
+    if xs.is_empty() || xs.len() != zs.len() {
+        return JObject::null().into_raw();
+    }
+
+    let density_vec = match read_float_array(&mut env, &densities) {
+        Ok(data) => data,
+        Err(_) => return JObject::null().into_raw(),
+    };
+
+    let chunk_coords: Vec<(i32, i32)> = xs.into_iter().zip(zs).collect();
+    let Some(outputs) = process_chunk_load_batch(
+        stage_ordinal,
+        min_y,
+        height,
+        world_seed,
+        &chunk_coords,
+        &density_vec,
+    ) else {
+        return JObject::null().into_raw();
+    };
+
+    if outputs.len() != chunk_coords.len() {
+        return JObject::null().into_raw();
+    }
+
+    let outer = match env.new_object_array(outputs.len() as i32, "java/lang/Object", JObject::null()) {
+        Ok(arr) => arr,
+        Err(_) => return JObject::null().into_raw(),
+    };
+
+    for (index, (skylight, face_mask)) in outputs.into_iter().enumerate() {
+        let pair = match build_chunk_load_pair_array(&mut env, &skylight, &face_mask) {
+            Ok(obj) => obj,
+            Err(_) => return JObject::null().into_raw(),
+        };
+        if env.set_object_array_element(&outer, index as i32, pair).is_err() {
+            return JObject::null().into_raw();
+        }
+    }
+
+    outer.into_raw()
 }
 
 #[no_mangle]
@@ -248,6 +389,51 @@ fn read_byte_array(env: &mut JNIEnv, array: &JByteArray) -> jni::errors::Result<
         std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut jbyte, len)
     })?;
     Ok(buf)
+}
+
+fn read_float_array(env: &mut JNIEnv, array: &jni::objects::JFloatArray) -> jni::errors::Result<Vec<f32>> {
+    let len = env.get_array_length(array)? as usize;
+    let mut buf = vec![0f32; len];
+    env.get_float_array_region(array, 0, &mut buf)?;
+    Ok(buf)
+}
+
+fn read_int_array(env: &mut JNIEnv, array: &jni::objects::JIntArray) -> jni::errors::Result<Vec<i32>> {
+    let len = env.get_array_length(array)? as usize;
+    let mut buf = vec![0i32; len];
+    env.get_int_array_region(array, 0, &mut buf)?;
+    Ok(buf)
+}
+
+fn build_chunk_load_pair_array<'local>(
+    env: &mut JNIEnv<'local>,
+    skylight: &[u8],
+    face_mask: &[u8],
+) -> Result<JObject<'local>, ()> {
+    let len = skylight.len();
+    if len == 0 || face_mask.len() != len {
+        return Err(());
+    }
+
+    let skylight_array = env.new_byte_array(len as i32).map_err(|_| ())?;
+    let skylight_i8: Vec<i8> = skylight.iter().map(|b| *b as i8).collect();
+    env.set_byte_array_region(&skylight_array, 0, &skylight_i8)
+        .map_err(|_| ())?;
+
+    let face_array = env.new_byte_array(len as i32).map_err(|_| ())?;
+    let face_i8: Vec<i8> = face_mask.iter().map(|b| *b as i8).collect();
+    env.set_byte_array_region(&face_array, 0, &face_i8)
+        .map_err(|_| ())?;
+
+    let obj_array = env
+        .new_object_array(2, "java/lang/Object", JObject::null())
+        .map_err(|_| ())?;
+    env.set_object_array_element(&obj_array, 0, skylight_array)
+        .map_err(|_| ())?;
+    env.set_object_array_element(&obj_array, 1, face_array)
+        .map_err(|_| ())?;
+
+    Ok(obj_array.into())
 }
 
 fn build_section_payload_array<'local>(

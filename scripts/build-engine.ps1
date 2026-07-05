@@ -1,13 +1,30 @@
+param(
+    [switch]$VerboseBuild,
+    [switch]$CudaViaCmake
+)
+
 $ErrorActionPreference = "Continue"
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $EngineDir = Join-Path $Root "engine"
 $GpuOutDir = Join-Path $Root "build\native-gpu"
 
+$VerboseBuild = $VerboseBuild -or ($env:CHUNKUP_BUILD_VERBOSE -eq "1")
+
+function Write-BuildLog($Message) {
+    Write-Host $Message
+}
+
+function Write-BuildCmd($Message) {
+    if ($VerboseBuild) {
+        Write-Host "    $Message" -ForegroundColor DarkGray
+    }
+}
+
 function Copy-IfExists($Path, $DestDir) {
     if (Test-Path $Path) {
         Copy-Item $Path $DestDir -Force
-        Write-Host "==> Copied $(Split-Path $Path -Leaf) -> $DestDir"
+        Write-BuildLog "==> Copied $(Split-Path $Path -Leaf) -> $DestDir"
         return $true
     }
     return $false
@@ -79,26 +96,48 @@ function Get-CudaVersion($NvccPath) {
     return [version]"0.0"
 }
 
+function Invoke-ExternalCommand {
+    param(
+        [string]$Label,
+        [string]$Command
+    )
+
+    Write-BuildLog "==> $Label"
+    Write-BuildCmd $Command
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    cmd /c $Command
+    $sw.Stop()
+
+    if (-not $?) {
+        Write-BuildLog "==> $Label failed (exit code $LASTEXITCODE, elapsed $($sw.Elapsed.TotalSeconds.ToString('F1'))s)"
+        return $false
+    }
+
+    Write-BuildLog "==> $Label done ($($sw.Elapsed.TotalSeconds.ToString('F1'))s)"
+    return $true
+}
+
 function Build-CudaWithNvcc($Root, $OutDir) {
     $nvcc = Find-Nvcc
     if (-not $nvcc) {
-        Write-Host "==> CUDA skipped (nvcc not found)"
+        Write-BuildLog "==> CUDA skipped (nvcc not found)"
         return $false
     }
 
     $cudaVersion = Get-CudaVersion $nvcc
-    Write-Host "==> CUDA: nvcc $cudaVersion at $nvcc"
+    Write-BuildLog "==> CUDA: nvcc $cudaVersion at $nvcc"
 
     $vcvars = Find-VcVars64
     if (-not $vcvars) {
-        Write-Host "==> CUDA skipped: no Visual Studio Build Tools found"
+        Write-BuildLog "==> CUDA skipped: no Visual Studio Build Tools found"
         return $false
     }
 
     if ($vcvars.Toolset) {
-        Write-Host "==> CUDA: using $($vcvars.Path) with -vcvars_ver=$($vcvars.Toolset)"
+        Write-BuildLog "==> CUDA: using $($vcvars.Path) with -vcvars_ver=$($vcvars.Toolset)"
     } else {
-        Write-Host "==> CUDA: using $($vcvars.Path)"
+        Write-BuildLog "==> CUDA: using $($vcvars.Path)"
     }
 
     $cu = Join-Path $Root "native\cuda\src\chunkup_cuda.cu"
@@ -110,6 +149,7 @@ function Build-CudaWithNvcc($Root, $OutDir) {
     $noiseState = Join-Path $Root "native\common\chunkup_noise_state.c"
     $nvccFlags = @(
         "-shared", "-o", "`"$out`"",
+        "-DCHUNKUP_EXPORT_BUILD",
         "`"$cu`"", "`"$hostc`"", "`"$noiseState`"",
         "-I`"$incCuda`"", "-I`"$incCommon`"",
         "--compiler-options", "/utf-8"
@@ -117,54 +157,101 @@ function Build-CudaWithNvcc($Root, $OutDir) {
     if ($cudaVersion.Major -lt 12) {
         $nvccFlags = @("-allow-unsupported-compiler") + $nvccFlags
     }
+    if ($VerboseBuild) {
+        $nvccFlags = @("-v") + $nvccFlags
+    }
 
+    $vcvarsRedirect = if ($VerboseBuild) { "" } else { " >nul" }
     $vcvarsCall = if ($vcvars.Toolset) {
-        "call `"$($vcvars.Path)`" -vcvars_ver=$($vcvars.Toolset) >nul"
+        "call `"$($vcvars.Path)`" -vcvars_ver=$($vcvars.Toolset)$vcvarsRedirect"
     } else {
-        "call `"$($vcvars.Path)`" >nul"
+        "call `"$($vcvars.Path)`"$vcvarsRedirect"
+    }
+
+    if (-not $VerboseBuild) {
+        Write-BuildLog "==> CUDA: initializing MSVC environment (vcvars64, ~20-30s, no output) ..."
     }
 
     $cmd = "$vcvarsCall && `"$nvcc`" $($nvccFlags -join ' ')"
-    Write-Host "==> CUDA: compiling chunkup_cuda.dll ..."
-
-    cmd /c $cmd
-    if (-not $?) {
-        Write-Host "==> CUDA build failed"
-        Write-Host "    CUDA $cudaVersion requires MSVC 14.29 or VS 2022 (not 14.51)."
-        Write-Host "    Current vcvars: $($vcvars.Path) toolset=$($vcvars.Toolset)"
-        Write-Host "    Fix: use -vcvars_ver=14.29, install VS 2022 Build Tools, or upgrade CUDA to 12.8+."
+    if (-not (Invoke-ExternalCommand "CUDA: compiling chunkup_cuda.dll" $cmd)) {
+        Write-BuildLog "    CUDA $cudaVersion requires MSVC 14.29 or VS 2022 (not 14.51)."
+        Write-BuildLog "    Current vcvars: $($vcvars.Path) toolset=$($vcvars.Toolset)"
+        Write-BuildLog "    Fix: use -vcvars_ver=14.29, install VS 2022 Build Tools, or upgrade CUDA to 12.8+."
+        Write-BuildLog "    Tip: re-run with -VerboseBuild to see nvcc/cl/cmake details."
         return $false
     }
 
     if (-not (Test-Path $out)) {
-        Write-Host "==> CUDA build failed (output missing)"
+        Write-BuildLog "==> CUDA build failed (output missing)"
         return $false
     }
 
-    Write-Host "==> Built chunkup_cuda.dll -> $GpuOutDir"
+    Write-BuildLog "==> Built chunkup_cuda.dll -> $GpuOutDir"
     return $true
 }
 
 function Invoke-CMakeBuild($Name, $SourceDir, $BuildDir, [string[]]$ExtraArgs) {
-    Write-Host "==> Building $Name backend"
+    Write-BuildLog "==> Building $Name backend"
     New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
     $configureArgs = @("-S", $SourceDir, "-B", $BuildDir) + $ExtraArgs
-    & cmake @configureArgs 2>&1 | Out-Null
+    if ($VerboseBuild) {
+        $configureArgs = @("--log-level=VERBOSE") + $configureArgs
+    }
+
+    Write-BuildLog "==> ${Name}: cmake configure"
+    Write-BuildCmd ("cmake " + ($configureArgs -join " "))
+    & cmake @configureArgs
     if (-not $?) {
-        Write-Host "==> $Name configure failed; skipping."
+        Write-BuildLog "==> $Name configure failed; skipping."
         return $false
     }
 
-    & cmake --build $BuildDir --config Release
+    $buildArgs = @("--build", $BuildDir, "--config", "Release")
+    if ($VerboseBuild) {
+        $buildArgs += @("--verbose")
+    }
+
+    Write-BuildLog "==> ${Name}: cmake --build"
+    Write-BuildCmd ("cmake " + ($buildArgs -join " "))
+    & cmake @buildArgs
     if (-not $?) {
-        Write-Host "==> $Name build failed; skipping."
+        Write-BuildLog "==> $Name build failed; skipping."
         return $false
     }
     return $true
 }
 
-Write-Host "==> Building Rust core (release)"
+function Build-CudaWithCmake($Root, $OutDir) {
+    $nvcc = Find-Nvcc
+    if (-not $nvcc) {
+        Write-BuildLog "==> CUDA (cmake) skipped (nvcc not found)"
+        return $false
+    }
+
+    $cudaArgs = @(
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_CUDA_COMPILER=$nvcc"
+    )
+    if ([bool](Get-Command ninja -ErrorAction SilentlyContinue)) {
+        $cudaArgs = @("-G", "Ninja") + $cudaArgs
+    }
+
+    if (-not (Invoke-CMakeBuild "CUDA" (Join-Path $Root "native\cuda") (Join-Path $Root "build\cuda") $cudaArgs)) {
+        return $false
+    }
+
+    $copied = $false
+    $copied = (Copy-IfExists (Join-Path $Root "build\cuda\Release\chunkup_cuda.dll") $OutDir) -or $copied
+    $copied = (Copy-IfExists (Join-Path $Root "build\cuda\chunkup_cuda.dll") $OutDir) -or $copied
+    return $copied
+}
+
+if ($VerboseBuild) {
+    Write-BuildLog "==> Verbose build enabled (-VerboseBuild / CHUNKUP_BUILD_VERBOSE=1)"
+}
+
+Write-BuildLog "==> Building Rust core (release)"
 Push-Location $EngineDir
 try {
     cargo build --release
@@ -180,16 +267,13 @@ New-Item -ItemType Directory -Force -Path $GpuOutDir | Out-Null
 
 # Rust 核心由 Gradle copyNativeLibraries 从 engine/target/release 复制
 if ($IsWindows -or ($env:OS -match "Windows")) {
-    Build-CudaWithNvcc $Root $GpuOutDir | Out-Null
-} elseif (Find-Nvcc) {
-    $nvcc = Find-Nvcc
-    $useNinja = [bool](Get-Command ninja -ErrorAction SilentlyContinue)
-    $cudaArgs = @("-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CUDA_COMPILER=$nvcc")
-    if ($useNinja) { $cudaArgs = @("-G", "Ninja") + $cudaArgs }
-    if (Invoke-CMakeBuild "CUDA" (Join-Path $Root "native\cuda") (Join-Path $Root "build\cuda") $cudaArgs) {
-        Copy-IfExists (Join-Path $Root "build\cuda\Release\chunkup_cuda.dll") $GpuOutDir | Out-Null
-        Copy-IfExists (Join-Path $Root "build\cuda\chunkup_cuda.dll") $GpuOutDir | Out-Null
+    if ($CudaViaCmake) {
+        Build-CudaWithCmake $Root $GpuOutDir | Out-Null
+    } else {
+        Build-CudaWithNvcc $Root $GpuOutDir | Out-Null
     }
+} elseif (Find-Nvcc) {
+    Build-CudaWithCmake $Root $GpuOutDir | Out-Null
 }
 
 if (Get-Command cmake -ErrorAction SilentlyContinue) {
@@ -203,7 +287,7 @@ if (Get-Command cmake -ErrorAction SilentlyContinue) {
     }
 }
 
-Write-Host "==> Done. GPU native artifacts in $GpuOutDir"
+Write-BuildLog "==> Done. GPU native artifacts in $GpuOutDir"
 Get-ChildItem $GpuOutDir -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Host "    $($_.Name) ($($_.Length) bytes)"
+    Write-BuildLog "    $($_.Name) ($($_.Length) bytes)"
 }

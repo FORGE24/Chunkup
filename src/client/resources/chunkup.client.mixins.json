@@ -5,6 +5,7 @@
 	"plugin": "cn.sanrolnet.chunkup.client.mixin.ChunkupClientMixinPlugin",
 	"client": [
 		"sodium.ChunkBuilderTaskAccessor",
+		"sodium.ChunkBuilderMeshingTaskAccess",
 		"sodium.ChunkBuilderMeshingTaskMixin",
 		"sodium.RenderSectionManagerMixin"
 	],

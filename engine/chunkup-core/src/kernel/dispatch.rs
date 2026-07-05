@@ -80,4 +80,100 @@ impl UnifiedKernel {
             Err(code)
         }
     }
+
+    pub fn dispatch_batch(
+        &self,
+        template_job: &KernelJob,
+        batch_count: i32,
+        host_density: &mut [f32],
+        host_skylight: &mut [u8],
+        host_face_mask: &mut [u8],
+        blocks_per_chunk: u32,
+    ) -> Result<KernelResult, i32> {
+        if batch_count <= 0 || template_job.op_mask == 0 {
+            return Ok(KernelResult {
+                status: 0,
+                ops_completed: 0,
+            });
+        }
+
+        let mut result = KernelResult::default();
+        let code = unsafe {
+            match self.backend {
+                BackendKind::Cuda => {
+                    if let Some(code) = gpu_loader::cuda_dispatch_batch(
+                        template_job,
+                        batch_count,
+                        host_density.as_ptr(),
+                        host_skylight.as_mut_ptr(),
+                        host_face_mask.as_mut_ptr(),
+                        blocks_per_chunk,
+                        &mut result,
+                    ) {
+                        code
+                    } else {
+                        super::types::chunkup_kernel_dispatch_cpu_batch(
+                            template_job as *const _,
+                            batch_count,
+                            host_density.as_mut_ptr(),
+                            host_skylight.as_mut_ptr(),
+                            host_face_mask.as_mut_ptr(),
+                            blocks_per_chunk,
+                            &mut result as *mut _,
+                        )
+                    }
+                }
+                BackendKind::OpenCl => {
+                    if let Some(code) = gpu_loader::opencl_dispatch_batch(
+                        template_job,
+                        batch_count,
+                        host_density.as_ptr(),
+                        host_skylight.as_mut_ptr(),
+                        host_face_mask.as_mut_ptr(),
+                        blocks_per_chunk,
+                        &mut result,
+                    ) {
+                        code
+                    } else {
+                        super::types::chunkup_kernel_dispatch_cpu_batch(
+                            template_job as *const _,
+                            batch_count,
+                            host_density.as_mut_ptr(),
+                            host_skylight.as_mut_ptr(),
+                            host_face_mask.as_mut_ptr(),
+                            blocks_per_chunk,
+                            &mut result as *mut _,
+                        )
+                    }
+                }
+                _ => super::types::chunkup_kernel_dispatch_cpu_batch(
+                    template_job as *const _,
+                    batch_count,
+                    host_density.as_mut_ptr(),
+                    host_skylight.as_mut_ptr(),
+                    host_face_mask.as_mut_ptr(),
+                    blocks_per_chunk,
+                    &mut result as *mut _,
+                ),
+            }
+        };
+
+        if code == 0 {
+            log::debug!(
+                "chunkup kernel batch ok backend={} count={} ops=0x{:x}",
+                self.backend.name(),
+                batch_count,
+                result.ops_completed
+            );
+            Ok(result)
+        } else {
+            log::warn!(
+                "chunkup kernel batch failed backend={} count={} code={}",
+                self.backend.name(),
+                batch_count,
+                code
+            );
+            Err(code)
+        }
+    }
 }

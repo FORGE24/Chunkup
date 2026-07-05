@@ -15,6 +15,7 @@ object Chunkup : ModInitializer {
 		private set
 
 	override fun onInitialize() {
+		ChunkupConfig.ensureLoaded()
 		engine = EngineBridge.create(preferFfm = false)
 		ChunkupEvents.register(engine)
 		LOGGER.info("Chunkup mod shell ready (bridge={})", engine.backendName)

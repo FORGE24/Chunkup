@@ -16,8 +16,39 @@ interface EngineBridge {
 
 	fun shutdown()
 
+	/** 当前活跃计算后端：`cuda` / `opencl` / `cpu-simd` / `none` */
+	fun activeComputeBackend(): String = "none"
+
 	/** 区块生成阶段回调；返回 false 表示引擎未能处理（仍继续原版流程）。 */
 	fun onChunkGeneration(stage: cn.sanrolnet.chunkup.minecraft.generation.ChunkGenerationStage, chunkX: Int, chunkZ: Int): Boolean
+
+	/**
+	 * GENERATED / LOADED：对已加载区块运行 GPU 天空光 + 面剔除。
+	 * [density] 布局：`index = ly * 256 + lz * 16 + lx`
+	 */
+	fun processChunkLoad(
+		stage: cn.sanrolnet.chunkup.minecraft.generation.ChunkGenerationStage,
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		density: FloatArray,
+	): cn.sanrolnet.chunkup.minecraft.generation.ChunkLoadResult? = null
+
+	/**
+	 * 批量区块加载：一次 GPU dispatch 处理多个 chunk。
+	 * 返回与 [chunkXs] 等长的结果列表，失败项为 null。
+	 */
+	fun processChunkLoadBatch(
+		stage: cn.sanrolnet.chunkup.minecraft.generation.ChunkGenerationStage,
+		chunkXs: IntArray,
+		chunkZs: IntArray,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		densities: FloatArray,
+	): List<cn.sanrolnet.chunkup.minecraft.generation.ChunkLoadResult?>? = null
 
 	/**
 	 * 生成区块密度场（长度 = 16×16×height）及 Aquifer 流体标记。

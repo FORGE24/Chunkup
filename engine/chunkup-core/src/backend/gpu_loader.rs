@@ -5,19 +5,6 @@ use libloading::Library;
 
 use crate::kernel::types::{KernelBuffers, KernelJob, KernelResult};
 
-static NATIVE_LIB_DIR: OnceLock<PathBuf> = OnceLock::new();
-
-/// 由 Kotlin/JNI 在加载 chunkup_core 后设置（java.library.path 对 Rust dlopen 不可见）。
-pub fn set_native_library_directory(path: &str) {
-    if path.is_empty() {
-        return;
-    }
-    let dir = PathBuf::from(path);
-    if dir.is_dir() {
-        let _ = NATIVE_LIB_DIR.set(dir);
-    }
-}
-
 type GpuIsAvailableFn = unsafe extern "C" fn() -> i32;
 type GpuDispatchFn = unsafe extern "C" fn(
     *const KernelJob,
@@ -31,79 +18,103 @@ struct GpuBackendLib {
     dispatch: GpuDispatchFn,
 }
 
+// ── library candidate paths (FORGE24 Linux adapt) ──────────────────
+//
+// On Windows: just <base>.dll in working dir
+// On macOS:   lib<base>.dylib or <base>.dylib
+// On Linux:   lib<base>.so — searched in:
+//   1. CHUNKUP_NATIVE_DIR env var (set by NativeLibraryLoader.kt)
+//   2. LD_LIBRARY_PATH
+//   3. Current working directory
 fn library_candidates(base: &str) -> Vec<PathBuf> {
-    #[cfg(windows)]
-    {
-        vec![PathBuf::from(format!("{base}.dll"))]
-    }
-    #[cfg(target_os = "macos")]
-    {
-        vec![
-            PathBuf::from(format!("lib{base}.dylib")),
-            PathBuf::from(format!("{base}.dylib")),
-        ]
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        vec![PathBuf::from(format!("lib{base}.so"))]
-    }
+    get_search_dirs()
+        .into_iter()
+        .flat_map(|dir| {
+            #[cfg(windows)]
+            {
+                vec![dir.join(format!("{base}.dll"))]
+            }
+            #[cfg(target_os = "macos")]
+            {
+                vec![
+                    dir.join(format!("lib{base}.dylib")),
+                    dir.join(format!("{base}.dylib")),
+                ]
+            }
+            #[cfg(all(unix, not(target_os = "macos")))]
+            {
+                vec![dir.join(format!("lib{base}.so"))]
+            }
+        })
+        .collect()
 }
 
-fn library_search_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    if let Some(dir) = NATIVE_LIB_DIR.get() {
-        paths.push(dir.clone());
-    }
-    if let Ok(dir) = std::env::var("CHUNKUP_NATIVE_DIR") {
-        if !dir.is_empty() {
-            paths.push(PathBuf::from(dir));
+/// Collect directories to search for GPU backend libraries.
+fn get_search_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+
+    // 1. CHUNKUP_NATIVE_DIR — set by NativeLibraryLoader.kt
+    if let Ok(native_dir) = std::env::var("CHUNKUP_NATIVE_DIR") {
+        if !native_dir.is_empty() {
+            dirs.push(PathBuf::from(&native_dir));
         }
     }
-    paths
-}
 
-fn candidate_paths(base: &str) -> Vec<PathBuf> {
-    let names = library_candidates(base);
-    let mut paths = Vec::new();
-    for dir in library_search_paths() {
-        for name in &names {
-            if let Some(file_name) = name.file_name() {
-                paths.push(dir.join(file_name));
+    // 2. LD_LIBRARY_PATH — standard Linux loader search path
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(ld_path) = std::env::var("LD_LIBRARY_PATH") {
+            for p in ld_path.split(':') {
+                let p = p.trim();
+                if !p.is_empty() {
+                    dirs.push(PathBuf::from(p));
+                }
             }
         }
     }
-    paths.extend(names);
-    paths
+
+    // 3. Current working directory (fallback for dev runs)
+    if let Ok(cwd) = std::env::current_dir() {
+        dirs.push(cwd);
+    }
+
+    // 4. Standard system library paths
+    #[cfg(target_os = "linux")]
+    {
+        dirs.push(PathBuf::from("/usr/lib"));
+        dirs.push(PathBuf::from("/usr/lib64"));
+        dirs.push(PathBuf::from("/usr/local/lib"));
+    }
+
+    dirs
 }
 
-fn load_backend(base: &str, available_sym: &[u8], dispatch_sym: &[u8]) -> Option<GpuBackendLib> {
-    let mut last_err: Option<String> = None;
-
-    for path in candidate_paths(base) {
+fn load_backend(
+    base: &str,
+    available_sym: &[u8],
+    dispatch_sym: &[u8],
+) -> Option<GpuBackendLib> {
+    for path in library_candidates(base) {
+        log::debug!("chunkup gpu_loader: trying {}", path.display());
         let library = match unsafe { Library::new(&path) } {
             Ok(lib) => lib,
-            Err(err) => {
-                last_err = Some(format!("{} ({})", path.display(), err));
-                continue;
-            }
+            Err(_) => continue,
         };
 
         let is_available = match unsafe { library.get::<GpuIsAvailableFn>(available_sym) } {
             Ok(sym) => *sym,
-            Err(err) => {
-                last_err = Some(format!("{} missing is_available ({})", path.display(), err));
-                continue;
-            }
+            Err(_) => continue,
         };
         let dispatch = match unsafe { library.get::<GpuDispatchFn>(dispatch_sym) } {
             Ok(sym) => *sym,
-            Err(err) => {
-                last_err = Some(format!("{} missing dispatch ({})", path.display(), err));
-                continue;
-            }
+            Err(_) => continue,
         };
 
-        log::info!("chunkup gpu backend loaded: {} from {}", base, path.display());
+        log::info!(
+            "chunkup gpu_loader: loaded {} from {}",
+            base,
+            path.display()
+        );
         return Some(GpuBackendLib {
             _library: library,
             is_available,
@@ -111,11 +122,6 @@ fn load_backend(base: &str, available_sym: &[u8], dispatch_sym: &[u8]) -> Option
         });
     }
 
-    if let Some(err) = last_err {
-        log::warn!("chunkup gpu backend {} load failed: {}", base, err);
-    } else {
-        log::warn!("chunkup gpu backend {} not found", base);
-    }
     None
 }
 
@@ -147,31 +153,11 @@ fn opencl_lib() -> Option<&'static GpuBackendLib> {
 }
 
 pub fn cuda_probe() -> bool {
-    let Some(lib) = cuda_lib() else {
-        log::info!("chunkup cuda probe: library not loaded");
-        return false;
-    };
-    let ok = unsafe { (lib.is_available)() != 0 };
-    if ok {
-        log::info!("chunkup cuda probe: device available");
-    } else {
-        log::warn!("chunkup cuda probe: library loaded but no CUDA device");
-    }
-    ok
+    cuda_lib().is_some_and(|lib| unsafe { (lib.is_available)() != 0 })
 }
 
 pub fn opencl_probe() -> bool {
-    let Some(lib) = opencl_lib() else {
-        log::info!("chunkup opencl probe: library not loaded");
-        return false;
-    };
-    let ok = unsafe { (lib.is_available)() != 0 };
-    if ok {
-        log::info!("chunkup opencl probe: device available");
-    } else {
-        log::warn!("chunkup opencl probe: library loaded but no OpenCL device");
-    }
-    ok
+    opencl_lib().is_some_and(|lib| unsafe { (lib.is_available)() != 0 })
 }
 
 pub fn cuda_dispatch(

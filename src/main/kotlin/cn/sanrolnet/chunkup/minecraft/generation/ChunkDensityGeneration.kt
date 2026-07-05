@@ -19,7 +19,7 @@ object ChunkDensityGeneration {
 
 		val level = ChunkGenerationWorldContext.get()
 		if (level == null) {
-			LOGGER.debug("skip chunkup noise fill: no ServerLevel context for [{}, {}]", chunk.pos.x, chunk.pos.z)
+			LOGGER.debug("skip chunkup noise fill: no ServerLevel for [{}, {}]", chunk.pos.x, chunk.pos.z)
 			return false
 		}
 
@@ -41,11 +41,12 @@ object ChunkDensityGeneration {
 				),
 			)
 			LOGGER.debug(
-				"replaced vanilla noise fill for chunk [{}, {}] minY={} height={}",
+				"chunkup GPU noise fill chunk=[{}, {}] minY={} height={} seed={}",
 				chunk.pos.x,
 				chunk.pos.z,
 				minY,
 				height,
+				level.seed,
 			)
 			true
 		} catch (e: Exception) {
