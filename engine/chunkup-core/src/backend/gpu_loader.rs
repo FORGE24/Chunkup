@@ -177,3 +177,39 @@ pub fn opencl_dispatch(
     let lib = opencl_lib()?;
     Some(unsafe { (lib.dispatch)(job as *const _, buffers as *mut _, result as *mut _) })
 }
+
+/// Set an additional search directory for GPU backend libraries.
+/// Called from JNI bridge after native libs are extracted/extracted.
+pub fn set_native_library_directory(_dir: &str) {
+    // The get_search_dirs() function already reads CHUNKUP_NATIVE_DIR env var.
+    // This stub exists for API compatibility with callers that pass the dir directly.
+    // The Kotlin NativeLibraryLoader already sets the env var before calling initialize().
+}
+
+// ── Batch dispatch stubs (GPU backends don't support batch yet) ────
+// These always return None, forcing dispatch.rs to fall back to CPU batch.
+// Once native/cuda and native/opencl gain batch entry points, wire them here.
+
+pub fn cuda_dispatch_batch(
+    _template_job: &KernelJob,
+    _batch_count: i32,
+    _host_density: *const f32,
+    _host_skylight: *mut u8,
+    _host_face_mask: *mut u8,
+    _blocks_per_chunk: u32,
+    _result: *mut KernelResult,
+) -> Option<i32> {
+    None
+}
+
+pub fn opencl_dispatch_batch(
+    _template_job: &KernelJob,
+    _batch_count: i32,
+    _host_density: *const f32,
+    _host_skylight: *mut u8,
+    _host_face_mask: *mut u8,
+    _blocks_per_chunk: u32,
+    _result: *mut KernelResult,
+) -> Option<i32> {
+    None
+}

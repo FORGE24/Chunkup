@@ -63,9 +63,10 @@ install_deb() {
 # ── Arch / Manjaro (pacman) ────────────────────────────────────────
 install_arch() {
     echo "==> Arch family: installing with pacman"
-    $SUDO pacman -S --needed cmake gcc rust
+    $SUDO pacman -Sy --needed --noconfirm bash cmake gcc make rustup
+    $SUDO -u nobody rustup default stable 2>/dev/null || rustup default stable 2>/dev/null || true
     # OpenCL (CUDA NOT supported on Arch — use OpenCL)
-    $SUDO pacman -S --needed opencl-headers ocl-icd
+    $SUDO pacman -S --needed --noconfirm opencl-headers ocl-icd
     echo "==> NOTE: Arch/Manjaro uses OpenCL only (no CUDA toolkit package)"
     echo "==> Arch dependencies installed"
 }
@@ -73,7 +74,7 @@ install_arch() {
 # ── Alpine (apk) ───────────────────────────────────────────────────
 install_alpine() {
     echo "==> Alpine: installing with apk"
-    $SUDO apk add cmake g++ rust cargo
+    $SUDO apk add bash cmake g++ rust cargo
     # OpenCL (CUDA NOT supported on Alpine — use OpenCL)
     $SUDO apk add opencl-headers opencl-icd-loader-dev
     echo "==> NOTE: Alpine uses OpenCL only (no CUDA support)"
