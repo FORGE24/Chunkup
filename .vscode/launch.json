@@ -1,0 +1,260 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Minecraft Client",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/run",
+      "console": "integratedTerminal",
+      "stopOnEntry": false,
+      "mainClass": "net.fabricmc.devlaunchinjector.Main",
+      "preLaunchTask": "Prepare: Minecraft Client",
+      "sourcePaths": [
+        "${workspaceFolder}/src/main/java",
+        "${workspaceFolder}/src/main/kotlin",
+        "${workspaceFolder}/src/client/java",
+        "${workspaceFolder}/src/client/kotlin"
+      ],
+      "vmArgs": [
+        "-Djava.library.path=${workspaceFolder}/build/native",
+        "-Dchunkup.native.dir=${workspaceFolder}/build/native",
+        "-Dchunkup.instantLoad=true",
+        "-Dchunkup.gpuWorldGen=false",
+        "-Dchunkup.gpuDensityBatch=false",
+        "-Dchunkup.layeredSections=true",
+        "-Dchunkup.layeredSections.rate=4",
+        "-Dchunkup.gpuSections=false",
+        "-Dchunkup.forceGpu=true",
+        "-Dchunkup.gpuChunkLoad.generated=false",
+        "-Dchunkup.gpuChunkLoad.loaded=false",
+        "-Dchunkup.gpuSkylightApply=false",
+        "-Dchunkup.gpuChunkLoad.batchSize=64",
+        "-Dchunkup.gpuChunkLoad.flushInterval=20",
+        "-Dchunkup.gpuChunkLoad.minFlushBatch=16",
+        "-Dchunkup.f3Debug=true",
+        "-Dchunkup.debug.probe=true",
+        "-DRUST_LOG=warn,chunkup_core=info",
+        "-Dfabric.dli.config=${workspaceFolder}/.gradle/loom-cache/launch.cfg",
+        "-Dfabric.dli.env=client",
+        "-Dfabric.dli.main=net.fabricmc.loader.impl.launch.knot.KnotClient"
+      ],
+      "projectName": "chunkup"
+    },
+    {
+      "type": "java",
+      "name": "Minecraft Client (Java + Native Debug)",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/run",
+      "console": "integratedTerminal",
+      "stopOnEntry": false,
+      "mainClass": "net.fabricmc.devlaunchinjector.Main",
+      "preLaunchTask": "Prepare: Minecraft Client (Native Debug)",
+      "serverReadyAction": {
+        "action": "debugWith",
+        "pattern": "(Environment: client|Loading Minecraft|Fabric Loader)",
+        "name": "Attach Native (CodeLLDB)",
+        "killOnServerStop": true
+      },
+      "sourcePaths": [
+        "${workspaceFolder}/src/main/java",
+        "${workspaceFolder}/src/main/kotlin",
+        "${workspaceFolder}/src/client/java",
+        "${workspaceFolder}/src/client/kotlin"
+      ],
+      "vmArgs": [
+        "-Djava.library.path=${workspaceFolder}/build/native",
+        "-Dchunkup.native.dir=${workspaceFolder}/build/native",
+        "-Dchunkup.instantLoad=true",
+        "-Dchunkup.gpuWorldGen=false",
+        "-Dchunkup.gpuDensityBatch=false",
+        "-Dchunkup.layeredSections=true",
+        "-Dchunkup.layeredSections.rate=4",
+        "-Dchunkup.gpuSections=false",
+        "-Dchunkup.forceGpu=true",
+        "-Dchunkup.gpuChunkLoad.generated=false",
+        "-Dchunkup.gpuChunkLoad.loaded=false",
+        "-Dchunkup.gpuSkylightApply=false",
+        "-Dchunkup.gpuChunkLoad.batchSize=64",
+        "-Dchunkup.gpuChunkLoad.flushInterval=20",
+        "-Dchunkup.gpuChunkLoad.minFlushBatch=16",
+        "-Dchunkup.f3Debug=true",
+        "-Dchunkup.debug.probe=true",
+        "-DRUST_LOG=debug,chunkup_core=debug",
+        "-Dfabric.dli.config=${workspaceFolder}/.gradle/loom-cache/launch.cfg",
+        "-Dfabric.dli.env=client",
+        "-Dfabric.dli.main=net.fabricmc.loader.impl.launch.knot.KnotClient"
+      ],
+      "projectName": "chunkup"
+    },
+    {
+      "type": "java",
+      "name": "Minecraft Client (Java + Native Debug, MSVC)",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/run",
+      "console": "integratedTerminal",
+      "stopOnEntry": false,
+      "mainClass": "net.fabricmc.devlaunchinjector.Main",
+      "preLaunchTask": "Prepare: Minecraft Client (Native Debug)",
+      "serverReadyAction": {
+        "action": "debugWith",
+        "pattern": "(Environment: client|Loading Minecraft|Fabric Loader)",
+        "name": "Attach Native (MSVC)",
+        "killOnServerStop": true
+      },
+      "sourcePaths": [
+        "${workspaceFolder}/src/main/java",
+        "${workspaceFolder}/src/main/kotlin",
+        "${workspaceFolder}/src/client/java",
+        "${workspaceFolder}/src/client/kotlin"
+      ],
+      "vmArgs": [
+        "-Djava.library.path=${workspaceFolder}/build/native",
+        "-Dchunkup.native.dir=${workspaceFolder}/build/native",
+        "-Dchunkup.instantLoad=true",
+        "-Dchunkup.gpuWorldGen=false",
+        "-Dchunkup.gpuDensityBatch=false",
+        "-Dchunkup.layeredSections=true",
+        "-Dchunkup.layeredSections.rate=4",
+        "-Dchunkup.gpuSections=false",
+        "-Dchunkup.forceGpu=true",
+        "-Dchunkup.gpuChunkLoad.generated=false",
+        "-Dchunkup.gpuChunkLoad.loaded=false",
+        "-Dchunkup.gpuSkylightApply=false",
+        "-Dchunkup.gpuChunkLoad.batchSize=64",
+        "-Dchunkup.gpuChunkLoad.flushInterval=20",
+        "-Dchunkup.gpuChunkLoad.minFlushBatch=16",
+        "-Dchunkup.f3Debug=true",
+        "-Dchunkup.debug.probe=true",
+        "-DRUST_LOG=debug,chunkup_core=debug",
+        "-Dfabric.dli.config=${workspaceFolder}/.gradle/loom-cache/launch.cfg",
+        "-Dfabric.dli.env=client",
+        "-Dfabric.dli.main=net.fabricmc.loader.impl.launch.knot.KnotClient"
+      ],
+      "projectName": "chunkup"
+    },
+    {
+      "type": "lldb",
+      "name": "Attach Native (CodeLLDB)",
+      "request": "attach",
+      "processName": "java.exe",
+      "sourceLanguages": [
+        "rust",
+        "c",
+        "cpp",
+        "cuda-cpp"
+      ],
+      "sourceMap": {
+        "/rustc/*": "${env:USERPROFILE}/.rustup/toolchains/*/lib/rustlib/src/rust/library/*"
+      },
+      "initCommands": [
+        "settings set target.inline-breakpoint-strategy always",
+        "settings append target.exec-search-paths ${workspaceFolder}/build/native",
+        "settings append target.exec-search-paths ${workspaceFolder}/engine/target/debug",
+        "settings append target.exec-search-paths ${workspaceFolder}/build/native-gpu",
+        "settings append target.exec-search-paths ${workspaceFolder}/build/cuda/Debug",
+        "settings append target.exec-search-paths ${workspaceFolder}/build/opencl/Debug"
+      ]
+    },
+    {
+      "type": "cppvsdbg",
+      "name": "Attach Native (MSVC)",
+      "request": "attach",
+      "processName": "java.exe",
+      "symbolSearchPath": "${workspaceFolder}/build/native;${workspaceFolder}/engine/target/debug;${workspaceFolder}/engine/target/debug/deps;${workspaceFolder}/build/native-gpu;${workspaceFolder}/build/cuda;${workspaceFolder}/build/cuda/Debug;${workspaceFolder}/build/opencl;${workspaceFolder}/build/opencl/Debug;${workspaceFolder}/build/settings/Debug;${workspaceFolder}/native/common;${workspaceFolder}/native/cuda/src;${workspaceFolder}/native/opencl/src",
+      "sourceFileMap": {
+        "${workspaceFolder}": "${workspaceFolder}"
+      },
+      "symbolLoadInfo": {
+        "loadAll": true
+      },
+      "logging": {
+        "moduleLoad": false,
+        "trace": false,
+        "engineLogging": false
+      }
+    },
+    {
+      "type": "java",
+      "name": "Minecraft Server",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/run",
+      "console": "integratedTerminal",
+      "stopOnEntry": false,
+      "mainClass": "net.fabricmc.devlaunchinjector.Main",
+      "preLaunchTask": "Prepare: Minecraft Server",
+      "sourcePaths": [
+        "${workspaceFolder}/src/main/java",
+        "${workspaceFolder}/src/main/kotlin",
+        "${workspaceFolder}/src/client/java",
+        "${workspaceFolder}/src/client/kotlin"
+      ],
+      "vmArgs": [
+        "-Djava.library.path=${workspaceFolder}/build/native",
+        "-Dchunkup.native.dir=${workspaceFolder}/build/native",
+        "-DRUST_LOG=warn,chunkup_core=info",
+        "-Dfabric.dli.config=${workspaceFolder}/.gradle/loom-cache/launch.cfg",
+        "-Dfabric.dli.env=server",
+        "-Dfabric.dli.main=net.fabricmc.loader.impl.launch.knot.KnotServer"
+      ],
+      "args": "nogui",
+      "projectName": "chunkup"
+    },
+    {
+      "type": "java",
+      "name": "Minecraft Server (Java + Native Debug)",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/run",
+      "console": "integratedTerminal",
+      "stopOnEntry": false,
+      "mainClass": "net.fabricmc.devlaunchinjector.Main",
+      "preLaunchTask": "Prepare: Minecraft Server (Native Debug)",
+      "serverReadyAction": {
+        "action": "debugWith",
+        "pattern": "(Environment: server|Starting Minecraft server|Fabric Loader)",
+        "name": "Attach Native (CodeLLDB)",
+        "killOnServerStop": true
+      },
+      "sourcePaths": [
+        "${workspaceFolder}/src/main/java",
+        "${workspaceFolder}/src/main/kotlin",
+        "${workspaceFolder}/src/client/java",
+        "${workspaceFolder}/src/client/kotlin"
+      ],
+      "vmArgs": [
+        "-Djava.library.path=${workspaceFolder}/build/native",
+        "-Dchunkup.native.dir=${workspaceFolder}/build/native",
+        "-DRUST_LOG=debug,chunkup_core=debug",
+        "-Dfabric.dli.config=${workspaceFolder}/.gradle/loom-cache/launch.cfg",
+        "-Dfabric.dli.env=server",
+        "-Dfabric.dli.main=net.fabricmc.loader.impl.launch.knot.KnotServer"
+      ],
+      "args": "nogui",
+      "projectName": "chunkup"
+    },
+    {
+      "type": "java",
+      "name": "Data Generation",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/run/datagen",
+      "console": "integratedTerminal",
+      "stopOnEntry": false,
+      "mainClass": "net.fabricmc.devlaunchinjector.Main",
+      "preLaunchTask": "Gradle: configureClientLaunch",
+      "sourcePaths": [
+        "${workspaceFolder}/src/main/java",
+        "${workspaceFolder}/src/main/kotlin",
+        "${workspaceFolder}/src/client/java",
+        "${workspaceFolder}/src/client/kotlin"
+      ],
+      "vmArgs": [
+        "-Dfabric.dli.config=${workspaceFolder}/.gradle/loom-cache/launch.cfg",
+        "-Dfabric.dli.env=client",
+        "-Dfabric.dli.main=net.fabricmc.loader.impl.launch.knot.KnotClient",
+        "-Dfabric-api.datagen",
+        "-Dfabric-api.datagen.output-dir=${workspaceFolder}/src/main/generated"
+      ],
+      "projectName": "chunkup"
+    }
+  ]
+}

@@ -60,6 +60,15 @@ object ChunkupConfig {
 		get() = System.getProperty("chunkup.gpuDensityBatch.size", if (gpuWorldGen) "32" else "16")
 			.toIntOrNull()?.coerceIn(1, 128) ?: if (gpuWorldGen) 32 else 16
 
+	/** GPU buildSurface 薄层（grass/dirt/sand），默认 gpuWorldGen 时开启。 */
+	val gpuSurfaceBuild: Boolean
+		get() = gpuWorldGen ||
+			(!instantLoad && System.getProperty("chunkup.gpuSurfaceBuild", "false").toBoolean())
+
+	/** CUDA pinned host 缓冲（减少 D→H 拷贝延迟），默认 true。 */
+	val gpuPinnedHost: Boolean
+		get() = System.getProperty("chunkup.gpuPinnedHost", "true").toBoolean()
+
 	val gpuChunkLoadOnGenerated: Boolean
 		get() = !instantLoad &&
 			System.getProperty("chunkup.gpuChunkLoad.generated", "false").toBoolean()

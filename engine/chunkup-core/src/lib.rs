@@ -194,6 +194,48 @@ pub fn generate_chunk_density_batch(
     Some(outputs)
 }
 
+pub fn generate_surface_thin(
+    chunk_x: i32,
+    chunk_z: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+    density: &[f32],
+    biome_kind: &[u8],
+) -> Option<Vec<u8>> {
+    if height <= 0 {
+        return None;
+    }
+
+    let expected_density = BLOCKS_PER_SECTION as usize * height as usize;
+    if density.len() != expected_density || biome_kind.len() != crate::kernel::workspace::SURFACE_COLUMNS {
+        return None;
+    }
+
+    let seed = mix_world_seed(world_seed);
+    let job = KernelJob::for_surface_thin(chunk_x, chunk_z, min_y, height, seed);
+
+    let Ok(slot) = ENGINE.lock() else {
+        return None;
+    };
+    let ctx = slot.as_ref()?;
+
+    let mut workspace = KernelWorkspace::for_job(&job);
+    workspace.density.copy_from_slice(density);
+    workspace.biome_kind.copy_from_slice(biome_kind);
+
+    ctx.kernel().dispatch_with_workspace(&job, &mut workspace).ok()?;
+
+    log::debug!(
+        "chunkup surface thin backend={} chunk=[{}, {}]",
+        ctx.active_backend().name(),
+        chunk_x,
+        chunk_z
+    );
+
+    Some(workspace.surface_layers)
+}
+
 pub fn process_chunk_load(
     chunk_x: i32,
     chunk_z: i32,

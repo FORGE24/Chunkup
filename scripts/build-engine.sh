@@ -13,6 +13,7 @@ OUT_DIR="$ROOT/build/native-gpu"
 mkdir -p "$OUT_DIR"
 
 C_FORCE_OPENCL="${CHUNKUP_FORCE_OPENCL:-}"
+BUILD_CONFIG="${CHUNKUP_BUILD_CONFIG:-Release}"
 DISTRO_ID=""
 DISTRO_LIKE=""
 
@@ -132,10 +133,15 @@ check_prereqs() {
 
 # ── Rust core ──────────────────────────────────────────────────────
 build_rust() {
-    echo "==> Building Rust core (release)"
+    echo "==> Building Rust core ($BUILD_CONFIG)"
     cd "$ENGINE_DIR"
-    cargo build --release
-    copy_if_exists "$ENGINE_DIR/target/release/libchunkup_core.so"
+    if [[ "$BUILD_CONFIG" == "Debug" ]]; then
+        cargo build
+        copy_if_exists "$ENGINE_DIR/target/debug/libchunkup_core.so"
+    else
+        cargo build --release
+        copy_if_exists "$ENGINE_DIR/target/release/libchunkup_core.so"
+    fi
 }
 
 # ── CUDA backend ───────────────────────────────────────────────────
@@ -167,7 +173,7 @@ build_cuda() {
 
     if cmake_build "CUDA" "$ROOT/native/cuda" "$ROOT/build/cuda" \
         "${generator_args[@]}" \
-        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_BUILD_TYPE="$BUILD_CONFIG" \
         -DCMAKE_CUDA_COMPILER="$nvcc" \
         -DCUDAToolkit_ROOT="$cuda_dir" \
         -DCMAKE_CUDA_HOST_COMPILER="$(command -v gcc-15 2>/dev/null || command -v gcc-14 2>/dev/null || command -v gcc)"; then
@@ -190,7 +196,7 @@ build_opencl() {
 
     if cmake_build "OpenCL" "$ROOT/native/opencl" "$ROOT/build/opencl" \
         "${generator_args[@]}" \
-        -DCMAKE_BUILD_TYPE=Release; then
+        -DCMAKE_BUILD_TYPE="$BUILD_CONFIG"; then
         copy_if_exists "$ROOT/build/opencl/libchunkup_opencl.so"
         echo "==> OpenCL backend built successfully"
     fi

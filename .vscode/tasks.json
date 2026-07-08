@@ -1,0 +1,138 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Gradle: configureLaunch",
+      "type": "shell",
+      "command": "./gradlew",
+      "args": ["configureLaunch", "--no-daemon"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "windows": {
+        "command": ".\\gradlew.bat"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gradle: configureClientLaunch",
+      "type": "shell",
+      "command": "./gradlew",
+      "args": ["configureClientLaunch", "--no-daemon"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "windows": {
+        "command": ".\\gradlew.bat"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gradle: copyNativeLibraries",
+      "type": "shell",
+      "command": "./gradlew",
+      "args": ["copyNativeLibraries", "--no-daemon"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "windows": {
+        "command": ".\\gradlew.bat"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gradle: copyNativeLibrariesDebug",
+      "type": "shell",
+      "command": "./gradlew",
+      "args": ["copyNativeLibrariesDebug", "--no-daemon"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "windows": {
+        "command": ".\\gradlew.bat"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gradle: build",
+      "type": "shell",
+      "command": "./gradlew",
+      "args": ["build", "--no-daemon"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "windows": {
+        "command": ".\\gradlew.bat"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Prepare: Minecraft Client",
+      "dependsOn": [
+        "Gradle: configureClientLaunch",
+        "Gradle: copyNativeLibraries"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Prepare: Minecraft Server",
+      "dependsOn": [
+        "Gradle: configureLaunch",
+        "Gradle: copyNativeLibraries"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Prepare: Minecraft Client (Native Debug)",
+      "dependsOn": [
+        "Gradle: configureClientLaunch",
+        "Gradle: copyNativeLibrariesDebug"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Prepare: Minecraft Server (Native Debug)",
+      "dependsOn": [
+        "Gradle: configureLaunch",
+        "Gradle: copyNativeLibrariesDebug"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    }
+  ]
+}

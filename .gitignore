@@ -19,7 +19,12 @@ classes/
 # vscode
 
 .settings/
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/c_cpp_properties.json
 bin/
 .classpath
 .project

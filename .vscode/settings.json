@@ -1,0 +1,41 @@
+{
+  "java.import.exclusions": [
+    "**/build/**",
+    "**/.gradle/**"
+  ],
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.compile.nullAnalysis.mode": "disabled",
+  "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx2G -Xms100m",
+  "java.project.sourcePaths": [
+    "src/main/java",
+    "src/main/kotlin",
+    "src/client/java",
+    "src/client/kotlin"
+  ],
+  "debug.allowBreakpointsEverywhere": true,
+  "files.exclude": {
+    "**/.gradle": true,
+    "**/build": true,
+    "**/engine/target": true
+  },
+  "files.associations": {
+    "*.cu": "cuda-cpp",
+    "*.cuh": "cuda-cpp",
+    "*.rs": "rust"
+  },
+  "kotlin.languageServer.enabled": true,
+  "rust-analyzer.linkedProjects": [
+    "engine/Cargo.toml"
+  ],
+  "rust-analyzer.cargo.features": [
+    "cpu"
+  ],
+  "rust-analyzer.cargo.extraEnv": {
+    "RUST_BACKTRACE": "1"
+  },
+  "C_Cpp.default.configurationProvider": "ms-vscode.cpptools",
+  "C_Cpp.default.symbolSearchPath": "${workspaceFolder}/build/native;${workspaceFolder}/engine/target/debug;${workspaceFolder}/engine/target/debug/deps;${workspaceFolder}/build/native-gpu;${workspaceFolder}/build/cuda;${workspaceFolder}/build/cuda/Debug;${workspaceFolder}/build/opencl;${workspaceFolder}/build/opencl/Debug;${workspaceFolder}/build/settings/Debug;${workspaceFolder}/native/common",
+  "C_Cpp.default.cppStandard": "c++17",
+  "C_Cpp.default.cStandard": "c17",
+  "lldb.suppressUpdateNotifications": true
+}

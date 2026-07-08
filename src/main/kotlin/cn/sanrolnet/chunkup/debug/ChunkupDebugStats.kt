@@ -18,6 +18,7 @@ object ChunkupDebugStats {
 	private val batchFailCount = AtomicLong(0)
 	private val densityBatchFlushCount = AtomicLong(0)
 	private val densityBatchFailCount = AtomicLong(0)
+	private val surfaceBuildCount = AtomicLong(0)
 	private val lastBackend = java.util.concurrent.atomic.AtomicReference("none")
 
 	@JvmStatic
@@ -33,6 +34,12 @@ object ChunkupDebugStats {
 			densityBatchFailCount.incrementAndGet()
 		}
 		lastBackend.set("$backend density x$batchSize")
+	}
+
+	@JvmStatic
+	fun recordSurfaceBuild(backend: String) {
+		surfaceBuildCount.incrementAndGet()
+		lastBackend.set("$backend surface")
 	}
 
 	@JvmStatic
@@ -68,11 +75,11 @@ object ChunkupDebugStats {
 		lines += " backend: ${engine?.activeComputeBackend() ?: "unavailable"}"
 		lines += " bridge: ${engine?.backendName ?: "none"} available=${engine?.isAvailable() ?: false}"
 		lines += " gpuWorldGen=${ChunkupConfig.gpuWorldGen} instantLoad=${ChunkupConfig.instantLoad} gpuNoiseFill=${ChunkupConfig.gpuNoiseFill}"
-		lines += " densityBatch=${ChunkupConfig.gpuDensityBatch} densityBatchSize=${ChunkupConfig.gpuDensityBatchSize}"
+		lines += " densityBatch=${ChunkupConfig.gpuDensityBatch} densityBatchSize=${ChunkupConfig.gpuDensityBatchSize} surfaceBuild=${ChunkupConfig.gpuSurfaceBuild} pinnedHost=${ChunkupConfig.gpuPinnedHost}"
 		lines += " genGpu=${ChunkupConfig.gpuChunkLoadOnGenerated} loadedGpu=${ChunkupConfig.gpuChunkLoadOnLoaded} skylightApply=${ChunkupConfig.gpuSkylightApply}"
 		lines += " forceGpu=${ChunkupConfig.forceGpu} batch=${ChunkupConfig.gpuChunkLoadBatchSize}"
 		lines += " nativeDir=${NativeLibraryLoader.nativeLibraryDirectory() ?: "n/a"}"
-		lines += " Kotlin: density=${densityFillCount.get()} densityBatch=${densityBatchFlushCount.get()} densityBatchFail=${densityBatchFailCount.get()}"
+		lines += " Kotlin: density=${densityFillCount.get()} surface=${surfaceBuildCount.get()} densityBatch=${densityBatchFlushCount.get()} densityBatchFail=${densityBatchFailCount.get()}"
 		lines += " batchFlush=${batchFlushCount.get()} batchFail=${batchFailCount.get()}"
 		lines += " chunksProcessed=${ChunkLoadPipeline.processedCount()} pendingLoad=${ChunkLoadBatcher.pendingCount()} pendingDensity=${ChunkDensityBatcher.pendingCount()} last=$lastBackend"
 		lines += " stages GPU: NOISE_FILL + chunk-load(GENERATED=${ChunkupConfig.gpuChunkLoadOnGenerated} LOADED=${ChunkupConfig.gpuChunkLoadOnLoaded})"

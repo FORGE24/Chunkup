@@ -33,6 +33,7 @@ typedef enum ChunkupKernelOp {
     CHUNKUP_OP_FACE_CULL = 1u << 3,
     CHUNKUP_OP_SECTION_MESH = 1u << 4,
     CHUNKUP_OP_OCCLUSION_PACK = 1u << 5,
+    CHUNKUP_OP_SURFACE_THIN = 1u << 6,
 } ChunkupKernelOp;
 
 typedef struct ChunkupKernelJob {
@@ -51,6 +52,8 @@ typedef struct ChunkupKernelBuffers {
     uint8_t* skylight;
     uint8_t* blocklight;
     uint8_t* face_mask;
+    uint8_t* biome_kind;
+    uint8_t* surface_layers;
     uint32_t stride_y;
 } ChunkupKernelBuffers;
 

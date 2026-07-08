@@ -1,11 +1,16 @@
 use super::types::{KernelJob, BLOCKS_PER_SECTION};
 
+pub const SURFACE_LAYERS: usize = 4;
+pub const SURFACE_COLUMNS: usize = BLOCKS_PER_SECTION as usize;
+
 pub struct KernelWorkspace {
     pub density: Vec<f32>,
     pub fluid: Vec<u8>,
     pub skylight: Vec<u8>,
     pub blocklight: Vec<u8>,
     pub face_mask: Vec<u8>,
+    pub biome_kind: Vec<u8>,
+    pub surface_layers: Vec<u8>,
     pub stride_y: u32,
 }
 
@@ -19,6 +24,8 @@ impl KernelWorkspace {
             skylight: vec![0; block_count],
             blocklight: vec![0; block_count],
             face_mask: vec![0; block_count],
+            biome_kind: vec![0; SURFACE_COLUMNS],
+            surface_layers: vec![0; SURFACE_COLUMNS * SURFACE_LAYERS],
             stride_y: BLOCKS_PER_SECTION,
         }
     }

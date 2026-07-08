@@ -6,7 +6,7 @@ use jni::sys::{jboolean, jbyte, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 use crate::section::{self, SectionMeshResult};
-use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, generate_chunk_density_batch, initialize, is_available, process_chunk_load, process_chunk_load_batch, shutdown};
+use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, generate_chunk_density_batch, generate_surface_thin, initialize, is_available, process_chunk_load, process_chunk_load_batch, shutdown};
 use crate::backend::set_native_library_directory;
 
 static SECTION_BUFFERS: LazyLock<Mutex<HashMap<isize, Vec<u8>>>> =
@@ -246,6 +246,49 @@ pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGenerate
     }
 
     outer.into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGenerateSurfaceThin(
+    mut env: JNIEnv,
+    _class: JClass,
+    chunk_x: i32,
+    chunk_z: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+    density: jni::objects::JFloatArray,
+    biome_kind: jni::objects::JByteArray,
+) -> jni::sys::jbyteArray {
+    let density_vec = match read_float_array(&mut env, &density) {
+        Ok(data) => data,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let biome_vec = match read_byte_array(&mut env, &biome_kind) {
+        Ok(data) => data,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let Some(layers) = generate_surface_thin(
+        chunk_x,
+        chunk_z,
+        min_y,
+        height,
+        world_seed,
+        &density_vec,
+        &biome_vec,
+    ) else {
+        return std::ptr::null_mut();
+    };
+
+    let Ok(array) = env.new_byte_array(layers.len() as i32) else {
+        return std::ptr::null_mut();
+    };
+    let layers_i8: Vec<i8> = layers.iter().map(|b| *b as i8).collect();
+    if env.set_byte_array_region(&array, 0, &layers_i8).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
 }
 
 #[no_mangle]

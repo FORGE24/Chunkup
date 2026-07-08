@@ -31,6 +31,22 @@ public abstract class NoiseBasedChunkGeneratorMixin {
 		}
 	}
 
+	@Inject(method = "buildSurface", at = @At("HEAD"), cancellable = true)
+	private void chunkup$replaceBuildSurface(
+		WorldGenRegion region,
+		StructureManager structureManager,
+		RandomState randomState,
+		ChunkAccess chunk,
+		CallbackInfo ci
+	) {
+		if (cn.sanrolnet.chunkup.minecraft.generation.ChunkSurfaceGeneration.tryReplaceBuildSurface(
+			chunk,
+			region.getLevel()
+		)) {
+			ci.cancel();
+		}
+	}
+
 	@Inject(method = "buildSurface", at = @At("TAIL"))
 	private void chunkup$afterBuildSurface(
 		WorldGenRegion region,

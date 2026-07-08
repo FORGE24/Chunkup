@@ -48,6 +48,7 @@ endif()
 
 add_library(chunkup_cuda SHARED
     src/chunkup_cuda.cu
+    src/chunkup_cuda_host.c
     ${CHUNKUP_COMMON_DIR}/chunkup_kernel_host.c
     ${CHUNKUP_COMMON_DIR}/chunkup_noise_state.c
 )

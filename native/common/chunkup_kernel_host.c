@@ -1,13 +1,16 @@
 #include "chunkup_kernel.h"
 #include "chunkup_noise_state.h"
 #include "chunkup_kernel_algo.h"
+#include "chunkup_surface.h"
 
 #include <string.h>
 
 uint32_t chunkup_kernel_ops_for_stage(uint32_t stage) {
     switch (stage) {
-        case CHUNKUP_STAGE_NOISE_FILL:
+		case CHUNKUP_STAGE_NOISE_FILL:
             return CHUNKUP_OP_NOISE_FILL;
+		case CHUNKUP_STAGE_SURFACE:
+            return CHUNKUP_OP_SURFACE_THIN;
 		case CHUNKUP_STAGE_GENERATED:
             return CHUNKUP_OP_SKYLIGHT;
 		case CHUNKUP_STAGE_LOADED:
@@ -72,6 +75,20 @@ static void chunkup_op_skylight(const ChunkupKernelJob* job, ChunkupKernelBuffer
 static void chunkup_op_blocklight(const ChunkupKernelJob* job, ChunkupKernelBuffers* buffers) {
     const uint32_t count = buffers->stride_y * (uint32_t)job->height;
     memset(buffers->blocklight, 0, count);
+}
+
+static void chunkup_op_surface_thin(const ChunkupKernelJob* job, ChunkupKernelBuffers* buffers) {
+    if (!buffers->density || !buffers->surface_layers) {
+        return;
+    }
+    chunkup_surface_fill_layers_cpu(
+        buffers->density,
+        buffers->biome_kind,
+        job->min_y,
+        job->height,
+        buffers->stride_y,
+        buffers->surface_layers
+    );
 }
 
 static void chunkup_op_face_cull(const ChunkupKernelJob* job, ChunkupKernelBuffers* buffers) {
@@ -143,6 +160,14 @@ int chunkup_kernel_dispatch_cpu(
         }
         chunkup_op_blocklight(job, buffers);
         result->ops_completed |= CHUNKUP_OP_BLOCKLIGHT;
+    }
+
+    if (job->op_mask & CHUNKUP_OP_SURFACE_THIN) {
+        if (!buffers->density || !buffers->surface_layers) {
+            return -6;
+        }
+        chunkup_op_surface_thin(job, buffers);
+        result->ops_completed |= CHUNKUP_OP_SURFACE_THIN;
     }
 
     if (job->op_mask & CHUNKUP_OP_FACE_CULL) {

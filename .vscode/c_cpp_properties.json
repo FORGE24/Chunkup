@@ -1,0 +1,33 @@
+{
+  "configurations": [
+    {
+      "name": "chunkup-native",
+      "includePath": [
+        "${workspaceFolder}/native/common",
+        "${workspaceFolder}/native/cuda/include",
+        "${workspaceFolder}/native/opencl/include",
+        "${workspaceFolder}/engine/chunkup-core/src",
+        "${workspaceFolder}/engine/chunkup-cpu/src",
+        "${workspaceFolder}/settings"
+      ],
+      "defines": [
+        "CHUNKUP_EXPORT_BUILD"
+      ],
+      "windowsSdkVersion": "10.0.22621.0",
+      "compilerPath": "cl.exe",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "windows-msvc-x64",
+      "browse": {
+        "path": [
+          "${workspaceFolder}/src",
+          "${workspaceFolder}/engine",
+          "${workspaceFolder}/native",
+          "${workspaceFolder}/settings"
+        ],
+        "limitSymbolsToIncludedHeaders": false
+      }
+    }
+  ],
+  "version": 4
+}

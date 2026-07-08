@@ -37,6 +37,7 @@ pub enum KernelOp {
     FaceCull = 1 << 3,
     SectionMesh = 1 << 4,
     OcclusionPack = 1 << 5,
+    SurfaceThin = 1 << 6,
 }
 
 #[repr(C)]
@@ -82,6 +83,24 @@ impl KernelJob {
             stage: Stage::NoiseFill as u32,
         }
     }
+
+    pub fn for_surface_thin(
+        chunk_x: i32,
+        chunk_z: i32,
+        min_y: i32,
+        height: i32,
+        seed: u32,
+    ) -> Self {
+        Self {
+            chunk_x,
+            chunk_z,
+            min_y,
+            height,
+            seed,
+            op_mask: KernelOp::SurfaceThin as u32,
+            stage: Stage::Surface as u32,
+        }
+    }
 }
 
 #[repr(C)]
@@ -91,6 +110,8 @@ pub struct KernelBuffers {
     pub skylight: *mut u8,
     pub blocklight: *mut u8,
     pub face_mask: *mut u8,
+    pub biome_kind: *mut u8,
+    pub surface_layers: *mut u8,
     pub stride_y: u32,
 }
 
@@ -102,6 +123,8 @@ impl KernelBuffers {
             skylight: workspace.skylight.as_mut_ptr(),
             blocklight: workspace.blocklight.as_mut_ptr(),
             face_mask: workspace.face_mask.as_mut_ptr(),
+            biome_kind: workspace.biome_kind.as_mut_ptr(),
+            surface_layers: workspace.surface_layers.as_mut_ptr(),
             stride_y: workspace.stride_y,
         }
     }

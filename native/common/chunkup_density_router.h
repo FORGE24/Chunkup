@@ -11,6 +11,7 @@
 
 #include "chunkup_compat.h"
 #include "chunkup_overworld_router.h"
+#include "chunkup_factor_eval.h"
 #include "chunkup_normal_noise.h"
 #include "chunkup_noise_bundle.h"
 #include "chunkup_spline.h"
@@ -96,20 +97,25 @@ CHUNKUP_FN float chunkup_router_offset_from_ridges(float ridges) {
 }
 
 CHUNKUP_FN float chunkup_router_factor_from_continents(float continents) {
-    return chunkup_spline_lookup(
-        continents,
-        CHUNKUP_SPLINE_FACTOR_CONTINENTS_LOC,
-        CHUNKUP_SPLINE_FACTOR_CONTINENTS_VAL,
-        CHUNKUP_SPLINE_FACTOR_CONTINENTS_COUNT
-    );
+    (void)continents;
+    return 0.0f;
 }
 
 CHUNKUP_FN float chunkup_router_factor_from_erosion(float erosion) {
-    return chunkup_spline_lookup(
+    (void)erosion;
+    return 0.0f;
+}
+
+CHUNKUP_FN float chunkup_router_factor_full(
+    float continents,
+    float erosion,
+    float ridges
+) {
+    return chunkup_factor_eval(
+        continents,
         erosion,
-        CHUNKUP_SPLINE_FACTOR_EROSION_LOC,
-        CHUNKUP_SPLINE_FACTOR_EROSION_VAL,
-        CHUNKUP_SPLINE_FACTOR_EROSION_COUNT
+        ridges,
+        chunkup_router_ridges_folded(ridges)
     );
 }
 
@@ -149,8 +155,7 @@ CHUNKUP_FN ChunkupRouterSample2D chunkup_router_sample_2d(
     s.offset = chunkup_router_offset_from_continents(s.continents)
         + chunkup_router_offset_from_erosion(s.erosion)
         + chunkup_router_offset_from_ridges(s.ridges);
-    s.factor = chunkup_router_factor_from_continents(s.continents)
-        + chunkup_router_factor_from_erosion(s.erosion);
+    s.factor = chunkup_router_factor_full(s.continents, s.erosion, s.ridges);
     return s;
 }
 

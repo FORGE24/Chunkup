@@ -138,9 +138,18 @@ tasks.jar {
 // Native engine: Kotlin → JNI/FFM → Rust → CUDA/OpenCL/CPU
 // ---------------------------------------------------------------------------
 
+tasks.register<Exec>("codegenFactorSpline") {
+	group = "chunkup"
+	description = "Generate chunkup_factor_eval.h from factor.json"
+	workingDir = layout.projectDirectory.asFile
+	val python = if (System.getProperty("os.name").lowercase().contains("windows")) "python" else "python3"
+	commandLine(python, layout.projectDirectory.file("scripts/codegen-factor-spline.py").asFile.absolutePath)
+}
+
 tasks.register<Exec>("extractOverworldRouter") {
 	group = "chunkup"
 	description = "Parse overworld.json noise_router into chunkup_overworld_router.h"
+	dependsOn("codegenFactorSpline")
 	workingDir = layout.projectDirectory.asFile
 	val python = if (System.getProperty("os.name").lowercase().contains("windows")) "python" else "python3"
 	commandLine(python, layout.projectDirectory.file("scripts/extract-overworld-router.py").asFile.absolutePath)
@@ -161,6 +170,26 @@ tasks.register<Exec>("buildGpuNativeEngine") {
 		)
 	} else {
 		commandLine("bash", layout.projectDirectory.file("scripts/build-engine.sh").asFile.absolutePath)
+	}
+}
+
+tasks.register<Exec>("buildGpuNativeEngineDebug") {
+	group = "chunkup"
+	description = "Build CUDA/OpenCL + Rust backends (Debug, with debug symbols)"
+	dependsOn("extractOverworldRouter")
+	workingDir = layout.projectDirectory.asFile
+	val script = layout.projectDirectory.file("scripts/build-engine.ps1").asFile
+	if (System.getProperty("os.name").lowercase().contains("windows")) {
+		commandLine(
+			"powershell",
+			"-NoProfile",
+			"-ExecutionPolicy", "Bypass",
+			"-File", script.absolutePath,
+			"-Configuration", "Debug",
+		)
+	} else {
+		commandLine("bash", layout.projectDirectory.file("scripts/build-engine.sh").asFile.absolutePath)
+		environment("CHUNKUP_BUILD_CONFIG", "Debug")
 	}
 }
 
@@ -198,7 +227,23 @@ tasks.register<Exec>("buildSettingsNative") {
 
 val nativeOutputDir = layout.buildDirectory.dir("native")
 val rustReleaseDir = layout.projectDirectory.dir("engine/target/release")
+val rustDebugDir = layout.projectDirectory.dir("engine/target/debug")
 val nativeGpuDir = layout.projectDirectory.dir("build/native-gpu")
+
+tasks.register<Exec>("buildSettingsNativeDebug") {
+	group = "chunkup"
+	description = "Build Qt settings JNI DLL (debug, chunkup_settings.dll)"
+	onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows }
+	commandLine(
+		"powershell",
+		"-NoProfile",
+		"-ExecutionPolicy", "Bypass",
+		"-File",
+		project.file("scripts/build-settings.ps1").absolutePath,
+		"-Toolchain", "MinGW",
+		"-Configuration", "Debug",
+	)
+}
 
 tasks.register<Copy>("copyNativeLibraries") {
 	group = "chunkup"
@@ -220,6 +265,61 @@ tasks.register<Copy>("copyNativeLibraries") {
 	// 兼容旧脚本直接写入 build/native 的 GPU 库
 	from(layout.projectDirectory.dir("build/native")) {
 		include("chunkup_cuda.dll", "chunkup_opencl.dll", "libchunkup_cuda.so", "libchunkup_opencl.so")
+	}
+
+	into(nativeOutputDir)
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.register<Copy>("copyNativeLibrariesDebug") {
+	group = "chunkup"
+	description = "Assemble debug native libraries (with PDB) into build/native"
+	dependsOn("buildGpuNativeEngineDebug")
+	if (org.gradle.internal.os.OperatingSystem.current().isWindows) {
+		dependsOn("buildSettingsNativeDebug")
+	}
+
+	from(rustDebugDir) {
+		include(
+			"chunkup_core.dll",
+			"chunkup_core.pdb",
+			"libchunkup_core.so",
+			"libchunkup_core.dylib",
+			"*.pdb",
+		)
+	}
+
+	from(layout.projectDirectory.dir("engine/target/debug/deps")) {
+		include("*.pdb")
+	}
+
+	from(nativeGpuDir) {
+		include("*.dll", "*.pdb", "*.so", "*.dylib")
+	}
+
+	from(layout.projectDirectory.dir("build/native")) {
+		include("chunkup_cuda.dll", "chunkup_cuda.pdb", "chunkup_opencl.dll", "chunkup_opencl.pdb")
+		include("libchunkup_cuda.so", "libchunkup_opencl.so")
+	}
+
+	from(layout.projectDirectory.dir("build/cuda/Debug")) {
+		include("*.dll", "*.pdb", "*.so")
+	}
+
+	from(layout.projectDirectory.dir("build/cuda")) {
+		include("chunkup_cuda.dll", "chunkup_cuda.pdb", "libchunkup_cuda.so")
+	}
+
+	from(layout.projectDirectory.dir("build/opencl/Debug")) {
+		include("*.dll", "*.pdb", "*.so")
+	}
+
+	from(layout.projectDirectory.dir("build/opencl")) {
+		include("chunkup_opencl.dll", "chunkup_opencl.pdb", "libchunkup_opencl.so")
+	}
+
+	from(layout.projectDirectory.dir("build/settings/Debug")) {
+		include("chunkup_settings.dll", "chunkup_settings.pdb")
 	}
 
 	into(nativeOutputDir)

@@ -73,6 +73,17 @@ interface EngineBridge {
 		worldSeed: Long,
 	): List<ChunkDensityFill?>? = null
 
+	/** GPU buildSurface 薄层：返回 256×4 surface block ID。 */
+	fun generateSurfaceThin(
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		density: FloatArray,
+		biomeKind: ByteArray,
+	): ByteArray? = null
+
 	/** Section 网格构建；无可用结果时返回 null。 */
 	fun onSectionBuild(sectionX: Int, sectionY: Int, sectionZ: Int, blockStates: ByteArray): cn.sanrolnet.chunkup.render.SectionBuildPayload? = null
 

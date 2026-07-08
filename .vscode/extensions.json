@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "vscjava.vscode-java-pack",
+    "fwcd.kotlin",
+    "vscjava.vscode-gradle",
+    "rust-lang.rust-analyzer",
+    "ms-vscode.cpptools",
+    "vadimcn.vscode-lldb"
+  ]
+}

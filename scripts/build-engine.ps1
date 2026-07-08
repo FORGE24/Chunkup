@@ -1,4 +1,6 @@
 param(
+    [ValidateSet("Release", "Debug")]
+    [string]$Configuration = "Release",
     [switch]$VerboseBuild,
     [switch]$CudaViaCmake
 )
@@ -154,6 +156,9 @@ function Build-CudaWithNvcc($Root, $OutDir) {
         "-I`"$incCuda`"", "-I`"$incCommon`"",
         "--compiler-options", "/utf-8"
     )
+    if ($Configuration -eq "Debug") {
+        $nvccFlags += @("-G", "-device-debug", "-lineinfo", "--compiler-options", "/Zi /Od")
+    }
     if ($cudaVersion.Major -lt 12) {
         $nvccFlags = @("-allow-unsupported-compiler") + $nvccFlags
     }
@@ -215,7 +220,7 @@ function Invoke-CMakeBuild($Name, $SourceDir, $BuildDir, [string[]]$ExtraArgs) {
         return $false
     }
 
-    $buildArgs = @("--build", $BuildDir, "--config", "Release")
+    $buildArgs = @("--build", $BuildDir, "--config", $Configuration)
     if ($VerboseBuild) {
         $buildArgs += @("--verbose")
     }
@@ -238,7 +243,7 @@ function Build-CudaWithCmake($Root, $OutDir) {
     }
 
     $cudaArgs = @(
-        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_BUILD_TYPE=$Configuration",
         "-DCMAKE_CUDA_COMPILER=$nvcc"
     )
     if ([bool](Get-Command ninja -ErrorAction SilentlyContinue)) {
@@ -259,10 +264,11 @@ if ($VerboseBuild) {
     Write-BuildLog "==> Verbose build enabled (-VerboseBuild / CHUNKUP_BUILD_VERBOSE=1)"
 }
 
-Write-BuildLog "==> Building Rust core (release)"
+$cargoProfileFlag = if ($Configuration -eq "Debug") { @() } else { @("--release") }
+Write-BuildLog "==> Building Rust core ($Configuration)"
 Push-Location $EngineDir
 try {
-    cargo build --release
+    cargo build @cargoProfileFlag
     if (-not $?) {
         Write-Error "Rust build failed"
         exit 1
@@ -285,7 +291,7 @@ if ($IsWindows -or ($env:OS -match "Windows")) {
 }
 
 if (Get-Command cmake -ErrorAction SilentlyContinue) {
-    $openclArgs = @("-DCMAKE_BUILD_TYPE=Release")
+    $openclArgs = @("-DCMAKE_BUILD_TYPE=$Configuration")
     if ($IsWindows -or ($env:OS -match "Windows")) {
         $cudaRoot = $env:CUDA_PATH
         if (-not $cudaRoot) {
