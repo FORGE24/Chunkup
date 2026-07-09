@@ -20,13 +20,22 @@ extern "C" {
 
 typedef struct ChunkupSettingsNative {
     int32_t version;
+    int32_t instant_load;
+    int32_t gpu_world_gen;
+    int32_t gpu_density_batch;
+    int32_t pre_render_on_load;
+    int32_t pre_render_budget;
+    int32_t layered_sections;
+    int32_t layered_sections_rate;
     int32_t force_gpu;
+    int32_t gpu_chunk_load_on_generated;
     int32_t gpu_chunk_load_on_loaded;
     int32_t gpu_skylight_apply;
     int32_t gpu_chunk_load_summary_interval;
     int32_t gpu_chunk_load_batch_size;
     int32_t gpu_sections;
     int32_t f3_debug;
+    int32_t debug_probe;
     char native_dir[CHUNKUP_SETTINGS_PATH_MAX];
     char rust_log_level[128];
 } ChunkupSettingsNative;

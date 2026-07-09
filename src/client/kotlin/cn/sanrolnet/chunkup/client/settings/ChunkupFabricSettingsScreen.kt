@@ -11,58 +11,84 @@ import net.minecraft.network.chat.Component
 
 /**
  * 游戏内设置界面（不依赖 Qt DLL），逗号键始终可用。
+ *
+ * 常用 Sodium 协同选项在主页；GPU 实验选项在 [ChunkupAdvancedSettingsScreen]。
  */
-class ChunkupFabricSettingsScreen(private val parentScreen: Screen?) : Screen(Component.literal("Chunkup 设置")) {
-	private val snapshot: ChunkupSettingsSnapshot = ChunkupConfigFile.currentSnapshot()
+class ChunkupFabricSettingsScreen(
+	private val parentScreen: Screen?,
+	private val sharedSnapshot: ChunkupSettingsSnapshot? = null,
+) : ChunkupScrollScreen(Component.literal("Chunkup 设置")) {
+	private val snapshot: ChunkupSettingsSnapshot = sharedSnapshot ?: ChunkupConfigFile.currentSnapshot()
 	private var dirty = false
 
-	override fun init() {
-		var y = 40
-		val rowHeight = 24
-		val labelWidth = 220
-		val buttonWidth = 120
-		val left = width / 2 - (labelWidth + buttonWidth) / 2
+	override fun buildScrollableContent(left: Int, startY: Int, labelWidth: Int, buttonWidth: Int): Int {
+		var y = startY
+		val rowHeight = 22
 
-		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "极速加载（推荐）", snapshot.instantLoad) {
+		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "GPU 世界生成", snapshot.gpuWorldGen) {
+			snapshot.gpuWorldGen = it
+			if (it) {
+				snapshot.instantLoad = false
+			}
+		})
+		y += rowHeight
+		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "极速加载（跳过 GPU 生成）", snapshot.instantLoad) {
 			snapshot.instantLoad = it
+			if (it) {
+				snapshot.gpuWorldGen = false
+			}
 		})
 		y += rowHeight
-		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "强制 GPU（不回退 CPU）", snapshot.forceGpu) {
-			snapshot.forceGpu = it
+		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "加载时预渲染", snapshot.preRenderOnLoad) {
+			snapshot.preRenderOnLoad = it
 		})
 		y += rowHeight
-		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "GENERATED 阶段 GPU", snapshot.gpuChunkLoadOnGenerated) {
-			snapshot.gpuChunkLoadOnGenerated = it
+		addRenderableWidget(cycle(left, y, labelWidth, buttonWidth, "预渲染 budget", BUDGET_OPTIONS, snapshot.preRenderBudgetPerFrame) {
+			snapshot.preRenderBudgetPerFrame = it
 		})
 		y += rowHeight
-		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "LOADED 阶段 GPU", snapshot.gpuChunkLoadOnLoaded) {
-			snapshot.gpuChunkLoadOnLoaded = it
+		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "分层 section mesh", snapshot.layeredSections) {
+			snapshot.layeredSections = it
 		})
 		y += rowHeight
-		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "GPU 天空光写回", snapshot.gpuSkylightApply) {
-			snapshot.gpuSkylightApply = it
-		})
-		y += rowHeight
-		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "GPU Section Mesh", snapshot.gpuSections) {
-			snapshot.gpuSections = it
+		addRenderableWidget(cycle(left, y, labelWidth, buttonWidth, "分层速率 /tick", RATE_OPTIONS, snapshot.layeredSectionsRate) {
+			snapshot.layeredSectionsRate = it
 		})
 		y += rowHeight
 		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "F3 调试信息", snapshot.f3Debug) {
 			snapshot.f3Debug = it
 		})
 		y += rowHeight
-		addRenderableWidget(cycle(left, y, labelWidth, buttonWidth, "攒批大小", BATCH_OPTIONS, snapshot.gpuChunkLoadBatchSize) {
-			snapshot.gpuChunkLoadBatchSize = it
+		addRenderableWidget(toggle(left, y, labelWidth, buttonWidth, "性能探针日志", snapshot.debugProbe) {
+			snapshot.debugProbe = it
 		})
-		y += rowHeight + 8
+		return y - startY + rowHeight
+	}
 
+	override fun buildFixedFooter(startY: Int) {
+		var y = startY
+		addRenderableWidget(
+			Button.builder(Component.literal("高级 / GPU 实验…")) {
+				minecraft?.setScreen(ChunkupAdvancedSettingsScreen(this, snapshot))
+			}.bounds(width / 2 - 100, y, 200, 20).build(),
+		)
+		y += 28
+		addRenderableWidget(
+			Button.builder(Component.literal("Qt 原生界面…")) {
+				minecraft?.let { client ->
+					client.setScreen(parentScreen)
+					ChunkupSettingsUi.openQtDialogAsync(client)
+				}
+			}.bounds(width / 2 - 100, y, 200, 20).build(),
+		)
+		y += 28
 		addRenderableWidget(
 			Button.builder(Component.literal("保存并应用")) {
 				applySnapshot()
 				minecraft?.setScreen(parentScreen)
 			}.bounds(width / 2 - 100, y, 200, 20).build(),
 		)
-		y += 28
+		y += 24
 		addRenderableWidget(
 			Button.builder(Component.literal("取消")) {
 				minecraft?.setScreen(parentScreen)
@@ -116,17 +142,15 @@ class ChunkupFabricSettingsScreen(private val parentScreen: Screen?) : Screen(Co
 		dirty = false
 	}
 
-	override fun render(guiGraphics: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float) {
-		renderBackground(guiGraphics)
-		guiGraphics.drawCenteredString(font, title, width / 2, 12, 0xFFFFFF)
+	override fun renderHeader(guiGraphics: GuiGraphics) {
+		super.renderHeader(guiGraphics)
 		guiGraphics.drawCenteredString(
 			font,
-			Component.literal("部分选项需重进世界后完全生效"),
+			Component.literal("Sodium 协同与观测 — 部分选项即时生效"),
 			width / 2,
-			24,
+			22,
 			0xA0A0A0,
 		)
-		super.render(guiGraphics, mouseX, mouseY, partialTick)
 	}
 
 	override fun onClose() {
@@ -137,6 +161,7 @@ class ChunkupFabricSettingsScreen(private val parentScreen: Screen?) : Screen(Co
 	}
 
 	companion object {
-		private val BATCH_OPTIONS = listOf(1, 8, 16, 32, 64, 128)
+		private val BUDGET_OPTIONS = listOf(4, 8, 12, 16, 24, 32)
+		private val RATE_OPTIONS = listOf(1, 2, 3, 4, 6, 8)
 	}
 }

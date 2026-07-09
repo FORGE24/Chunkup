@@ -4,14 +4,23 @@
 #include <QString>
 
 struct ChunkupSettings {
-    int version = 1;
-    bool forceGpu = true;
-    bool gpuChunkLoadOnLoaded = true;
-    bool gpuSkylightApply = true;
+    int version = 2;
+    bool instantLoad = false;
+    bool gpuWorldGen = true;
+    bool gpuDensityBatch = true;
+    bool preRenderOnLoad = true;
+    int preRenderBudgetPerFrame = 8;
+    bool layeredSections = true;
+    int layeredSectionsRate = 3;
+    bool forceGpu = false;
+    bool gpuChunkLoadOnGenerated = false;
+    bool gpuChunkLoadOnLoaded = false;
+    bool gpuSkylightApply = false;
     int gpuChunkLoadSummaryInterval = 256;
     int gpuChunkLoadBatchSize = 64;
-    bool gpuSections = true;
+    bool gpuSections = false;
     bool f3Debug = true;
+    bool debugProbe = false;
     QString nativeDir;
     QString rustLogLevel = QStringLiteral("warn,chunkup_core=warn");
 

@@ -10,7 +10,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(QStringLiteral("Chunkup 设置"));
-    resize(640, 720);
+    resize(680, 820);
     setModal(true);
     buildUi();
     refreshJvmPreview();
@@ -20,29 +20,52 @@ void MainWindow::buildUi()
 {
     auto *layout = new QVBoxLayout(this);
 
-    auto *gpuLoadGroup = new QGroupBox(QStringLiteral("GPU 区块加载"), this);
-    auto *gpuLoadForm = new QFormLayout(gpuLoadGroup);
+    auto *sodiumGroup = new QGroupBox(QStringLiteral("Sodium 协同（默认游玩路径）"), this);
+    auto *sodiumForm = new QFormLayout(sodiumGroup);
 
-    m_gpuChunkLoadOnLoaded = new QCheckBox(QStringLiteral("在 LOADED 阶段启用 GPU（磁盘/传送加载）"), gpuLoadGroup);
-    m_gpuSkylightApply = new QCheckBox(QStringLiteral("将 GPU 天空光写回 Minecraft"), gpuLoadGroup);
-    m_forceGpu = new QCheckBox(QStringLiteral("强制 GPU（失败时不回退 CPU）"), gpuLoadGroup);
-    m_gpuChunkLoadBatchSize = new QSpinBox(gpuLoadGroup);
+	m_instantLoad = new QCheckBox(QStringLiteral("极速加载（跳过 GPU 生成）"), sodiumGroup);
+    m_gpuWorldGen = new QCheckBox(QStringLiteral("GPU 世界生成（CUDA→OpenCL→CPU）"), sodiumGroup);
+    m_preRenderOnLoad = new QCheckBox(QStringLiteral("加载时预渲染（距离优先）"), sodiumGroup);
+    m_preRenderBudget = new QSpinBox(sodiumGroup);
+    m_preRenderBudget->setRange(1, 64);
+    m_layeredSections = new QCheckBox(QStringLiteral("分层 section mesh（地表先出）"), sodiumGroup);
+    m_layeredSectionsRate = new QSpinBox(sodiumGroup);
+    m_layeredSectionsRate->setRange(1, 16);
+
+    sodiumForm->addRow(m_gpuWorldGen);
+    sodiumForm->addRow(m_instantLoad);
+    sodiumForm->addRow(m_preRenderOnLoad);
+    sodiumForm->addRow(QStringLiteral("预渲染 budget / 帧"), m_preRenderBudget);
+    sodiumForm->addRow(m_layeredSections);
+    sodiumForm->addRow(QStringLiteral("分层速率 / tick"), m_layeredSectionsRate);
+
+    auto *observeGroup = new QGroupBox(QStringLiteral("观测"), this);
+    auto *observeForm = new QFormLayout(observeGroup);
+    m_f3Debug = new QCheckBox(QStringLiteral("F3 调试面板显示 Chunkup 详情"), observeGroup);
+    m_debugProbe = new QCheckBox(QStringLiteral("性能探针日志（density.read / gpu.batch）"), observeGroup);
+    observeForm->addRow(m_f3Debug);
+    observeForm->addRow(m_debugProbe);
+
+    auto *gpuGroup = new QGroupBox(QStringLiteral("高级 / GPU 实验"), this);
+    auto *gpuForm = new QFormLayout(gpuGroup);
+
+    m_gpuChunkLoadOnGenerated = new QCheckBox(QStringLiteral("GENERATED 阶段 GPU"), gpuGroup);
+    m_gpuChunkLoadOnLoaded = new QCheckBox(QStringLiteral("LOADED 阶段 GPU（磁盘/传送加载）"), gpuGroup);
+    m_gpuSkylightApply = new QCheckBox(QStringLiteral("将 GPU 天空光写回 Minecraft"), gpuGroup);
+    m_forceGpu = new QCheckBox(QStringLiteral("强制 GPU（禁用 CPU 回退）"), gpuGroup);
+    m_gpuChunkLoadBatchSize = new QSpinBox(gpuGroup);
     m_gpuChunkLoadBatchSize->setRange(1, 128);
-    m_gpuChunkLoadSummaryInterval = new QSpinBox(gpuLoadGroup);
+    m_gpuChunkLoadSummaryInterval = new QSpinBox(gpuGroup);
     m_gpuChunkLoadSummaryInterval->setRange(1, 100000);
+    m_gpuSections = new QCheckBox(QStringLiteral("启用 GPU Section Mesh（需 Sodium）"), gpuGroup);
 
-    gpuLoadForm->addRow(m_gpuChunkLoadOnLoaded);
-    gpuLoadForm->addRow(m_gpuSkylightApply);
-    gpuLoadForm->addRow(m_forceGpu);
-    gpuLoadForm->addRow(QStringLiteral("攒批大小"), m_gpuChunkLoadBatchSize);
-    gpuLoadForm->addRow(QStringLiteral("汇总日志间隔"), m_gpuChunkLoadSummaryInterval);
-
-    auto *renderGroup = new QGroupBox(QStringLiteral("客户端渲染"), this);
-    auto *renderForm = new QFormLayout(renderGroup);
-    m_gpuSections = new QCheckBox(QStringLiteral("启用 GPU Section Mesh（需 Sodium）"), renderGroup);
-    m_f3Debug = new QCheckBox(QStringLiteral("F3 调试面板显示 Chunkup 详情"), renderGroup);
-    renderForm->addRow(m_gpuSections);
-    renderForm->addRow(m_f3Debug);
+    gpuForm->addRow(m_gpuChunkLoadOnGenerated);
+    gpuForm->addRow(m_gpuChunkLoadOnLoaded);
+    gpuForm->addRow(m_gpuSkylightApply);
+    gpuForm->addRow(m_forceGpu);
+    gpuForm->addRow(QStringLiteral("攒批大小"), m_gpuChunkLoadBatchSize);
+    gpuForm->addRow(QStringLiteral("汇总日志间隔"), m_gpuChunkLoadSummaryInterval);
+    gpuForm->addRow(m_gpuSections);
 
     auto *nativeGroup = new QGroupBox(QStringLiteral("Native 库"), this);
     auto *nativeForm = new QFormLayout(nativeGroup);
@@ -73,7 +96,7 @@ void MainWindow::buildUi()
     m_configPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_configPathLabel->setText(QStringLiteral("配置文件：%1").arg(ConfigManager::settingsFilePath()));
 
-    m_statusLabel = new QLabel(QStringLiteral("部分选项需重启世界后生效"), this);
+    m_statusLabel = new QLabel(QStringLiteral("Sodium 协同选项即时生效；GPU 实验建议重进世界"), this);
 
     auto *utilityRow = new QHBoxLayout();
     auto *defaultsButton = new QPushButton(QStringLiteral("恢复默认"), this);
@@ -86,8 +109,9 @@ void MainWindow::buildUi()
     connect(buttonBox, &QDialogButtonBox::accepted, this, &MainWindow::acceptDialog);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    layout->addWidget(gpuLoadGroup);
-    layout->addWidget(renderGroup);
+    layout->addWidget(sodiumGroup);
+    layout->addWidget(observeGroup);
+    layout->addWidget(gpuGroup);
     layout->addWidget(nativeGroup);
     layout->addWidget(advancedGroup);
     layout->addWidget(previewGroup, 1);
@@ -101,13 +125,21 @@ void MainWindow::buildUi()
     connect(openDirButton, &QPushButton::clicked, this, &MainWindow::openConfigDirectory);
 
     const auto refreshPreview = [this]() { refreshJvmPreview(); };
+    connect(m_gpuWorldGen, &QCheckBox::toggled, this, refreshPreview);
+    connect(m_instantLoad, &QCheckBox::toggled, this, refreshPreview);
+    connect(m_preRenderOnLoad, &QCheckBox::toggled, this, refreshPreview);
+    connect(m_preRenderBudget, qOverload<int>(&QSpinBox::valueChanged), this, refreshPreview);
+    connect(m_layeredSections, &QCheckBox::toggled, this, refreshPreview);
+    connect(m_layeredSectionsRate, qOverload<int>(&QSpinBox::valueChanged), this, refreshPreview);
+    connect(m_f3Debug, &QCheckBox::toggled, this, refreshPreview);
+    connect(m_debugProbe, &QCheckBox::toggled, this, refreshPreview);
+    connect(m_gpuChunkLoadOnGenerated, &QCheckBox::toggled, this, refreshPreview);
     connect(m_gpuChunkLoadOnLoaded, &QCheckBox::toggled, this, refreshPreview);
     connect(m_gpuSkylightApply, &QCheckBox::toggled, this, refreshPreview);
     connect(m_forceGpu, &QCheckBox::toggled, this, refreshPreview);
     connect(m_gpuChunkLoadBatchSize, qOverload<int>(&QSpinBox::valueChanged), this, refreshPreview);
     connect(m_gpuChunkLoadSummaryInterval, qOverload<int>(&QSpinBox::valueChanged), this, refreshPreview);
     connect(m_gpuSections, &QCheckBox::toggled, this, refreshPreview);
-    connect(m_f3Debug, &QCheckBox::toggled, this, refreshPreview);
     connect(m_nativeDir, &QLineEdit::textChanged, this, refreshPreview);
     connect(m_rustLogLevel, &QLineEdit::textChanged, this, refreshPreview);
 }
@@ -115,13 +147,21 @@ void MainWindow::buildUi()
 ChunkupSettings MainWindow::collectSettings() const
 {
     ChunkupSettings settings;
+    settings.instantLoad = m_instantLoad->isChecked();
+    settings.gpuWorldGen = m_gpuWorldGen->isChecked();
+    settings.preRenderOnLoad = m_preRenderOnLoad->isChecked();
+    settings.preRenderBudgetPerFrame = m_preRenderBudget->value();
+    settings.layeredSections = m_layeredSections->isChecked();
+    settings.layeredSectionsRate = m_layeredSectionsRate->value();
+    settings.f3Debug = m_f3Debug->isChecked();
+    settings.debugProbe = m_debugProbe->isChecked();
     settings.forceGpu = m_forceGpu->isChecked();
+    settings.gpuChunkLoadOnGenerated = m_gpuChunkLoadOnGenerated->isChecked();
     settings.gpuChunkLoadOnLoaded = m_gpuChunkLoadOnLoaded->isChecked();
     settings.gpuSkylightApply = m_gpuSkylightApply->isChecked();
     settings.gpuChunkLoadSummaryInterval = m_gpuChunkLoadSummaryInterval->value();
     settings.gpuChunkLoadBatchSize = m_gpuChunkLoadBatchSize->value();
     settings.gpuSections = m_gpuSections->isChecked();
-    settings.f3Debug = m_f3Debug->isChecked();
     settings.nativeDir = m_nativeDir->text().trimmed();
     settings.rustLogLevel = m_rustLogLevel->text().trimmed();
     return settings;
@@ -129,13 +169,21 @@ ChunkupSettings MainWindow::collectSettings() const
 
 void MainWindow::applySettings(const ChunkupSettings &settings)
 {
+    m_instantLoad->setChecked(settings.instantLoad);
+    m_gpuWorldGen->setChecked(settings.gpuWorldGen);
+    m_preRenderOnLoad->setChecked(settings.preRenderOnLoad);
+    m_preRenderBudget->setValue(settings.preRenderBudgetPerFrame);
+    m_layeredSections->setChecked(settings.layeredSections);
+    m_layeredSectionsRate->setValue(settings.layeredSectionsRate);
+    m_f3Debug->setChecked(settings.f3Debug);
+    m_debugProbe->setChecked(settings.debugProbe);
     m_forceGpu->setChecked(settings.forceGpu);
+    m_gpuChunkLoadOnGenerated->setChecked(settings.gpuChunkLoadOnGenerated);
     m_gpuChunkLoadOnLoaded->setChecked(settings.gpuChunkLoadOnLoaded);
     m_gpuSkylightApply->setChecked(settings.gpuSkylightApply);
     m_gpuChunkLoadSummaryInterval->setValue(settings.gpuChunkLoadSummaryInterval);
     m_gpuChunkLoadBatchSize->setValue(settings.gpuChunkLoadBatchSize);
     m_gpuSections->setChecked(settings.gpuSections);
-    m_f3Debug->setChecked(settings.f3Debug);
     m_nativeDir->setText(settings.nativeDir);
     m_rustLogLevel->setText(settings.rustLogLevel);
 }

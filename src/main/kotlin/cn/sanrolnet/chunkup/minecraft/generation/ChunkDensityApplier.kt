@@ -1,9 +1,9 @@
 package cn.sanrolnet.chunkup.minecraft.generation
 
-import net.minecraft.core.BlockPos
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.chunk.ChunkAccess
+import net.minecraft.world.level.chunk.LevelChunkSection
 
 /**
  * 将引擎密度场写回 [ChunkAccess]。
@@ -45,18 +45,25 @@ object ChunkDensityApplier {
 			"fluid size ${fluid.size} != expected $expected (height=$height)"
 		}
 
-		val baseX = chunk.pos.minBlockX
-		val baseZ = chunk.pos.minBlockZ
+		var sectionIndex = Int.MIN_VALUE
+		var section: LevelChunkSection? = null
 
 		for (ly in 0 until height) {
 			val worldY = minY + ly
+			val secIdx = chunk.getSectionIndex(worldY)
+			if (secIdx != sectionIndex) {
+				sectionIndex = secIdx
+				section = chunk.getSection(sectionIndex)
+			}
+			val localY = worldY and 15
 			val layerBase = ly * STRIDE_Y
+
 			for (lz in 0 until CHUNK_SIZE) {
 				val rowBase = layerBase + lz * CHUNK_SIZE
 				for (lx in 0 until CHUNK_SIZE) {
 					val idx = rowBase + lx
 					val state = resolveBlockState(density[idx], fluid[idx], worldY)
-					chunk.setBlockState(BlockPos(baseX + lx, worldY, baseZ + lz), state, false)
+					section!!.setBlockState(lx, localY, lz, state, false)
 				}
 			}
 		}

@@ -35,8 +35,13 @@ object ChunkupConfigFile {
 			gpuSkylightApply = ChunkupConfig.gpuSkylightApply
 			gpuChunkLoadSummaryInterval = ChunkupConfig.gpuChunkLoadSummaryInterval
 			gpuChunkLoadBatchSize = ChunkupConfig.gpuChunkLoadBatchSize
-			gpuSections = System.getProperty("chunkup.gpuSections", "false").toBoolean()
+			gpuSections = ChunkupConfig.gpuSections
+			preRenderOnLoad = ChunkupConfig.preRenderOnLoad
+			preRenderBudgetPerFrame = ChunkupConfig.preRenderBudgetPerFrame
+			layeredSections = ChunkupConfig.layeredSections
+			layeredSectionsRate = ChunkupConfig.layeredSectionsRate
 			f3Debug = ChunkupConfig.f3Debug
+			debugProbe = ChunkupConfig.debugProbe
 			nativeDir = System.getProperty("chunkup.native.dir", "")
 			rustLogLevel = System.getenv("RUST_LOG") ?: "warn,chunkup_core=warn"
 		}
@@ -54,7 +59,12 @@ object ChunkupConfigFile {
 		System.setProperty("chunkup.gpuChunkLoad.summaryInterval", snapshot.gpuChunkLoadSummaryInterval.toString())
 		System.setProperty("chunkup.gpuChunkLoad.batchSize", snapshot.gpuChunkLoadBatchSize.toString())
 		System.setProperty("chunkup.gpuSections", snapshot.gpuSections.toString())
+		System.setProperty("chunkup.preRenderOnLoad", snapshot.preRenderOnLoad.toString())
+		System.setProperty("chunkup.preRender.budget", snapshot.preRenderBudgetPerFrame.toString())
+		System.setProperty("chunkup.layeredSections", snapshot.layeredSections.toString())
+		System.setProperty("chunkup.layeredSections.rate", snapshot.layeredSectionsRate.toString())
 		System.setProperty("chunkup.f3Debug", snapshot.f3Debug.toString())
+		System.setProperty("chunkup.debug.probe", snapshot.debugProbe.toString())
 		if (snapshot.nativeDir.isNotBlank()) {
 			System.setProperty("chunkup.native.dir", snapshot.nativeDir)
 		}
@@ -129,7 +139,12 @@ object ChunkupConfigFile {
 		applied += applyInt(root, "gpuChunkLoadSummaryInterval", "chunkup.gpuChunkLoad.summaryInterval")
 		applied += applyInt(root, "gpuChunkLoadBatchSize", "chunkup.gpuChunkLoad.batchSize")
 		applied += applyBoolean(root, "gpuSections", "chunkup.gpuSections")
+		applied += applyBoolean(root, "preRenderOnLoad", "chunkup.preRenderOnLoad")
+		applied += applyInt(root, "preRenderBudgetPerFrame", "chunkup.preRender.budget")
+		applied += applyBoolean(root, "layeredSections", "chunkup.layeredSections")
+		applied += applyInt(root, "layeredSectionsRate", "chunkup.layeredSections.rate")
 		applied += applyBoolean(root, "f3Debug", "chunkup.f3Debug")
+		applied += applyBoolean(root, "debugProbe", "chunkup.debug.probe")
 		applied += applyString(root, "nativeDir", "chunkup.native.dir")
 
 		if (applied > 0) {

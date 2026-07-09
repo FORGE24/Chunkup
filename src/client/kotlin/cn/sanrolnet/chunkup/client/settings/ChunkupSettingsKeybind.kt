@@ -19,9 +19,7 @@ object ChunkupSettingsKeybind {
 	fun register() {
 		ClientTickEvents.END_CLIENT_TICK.register { client ->
 			while (SETTINGS_KEY.consumeClick()) {
-				if (client.player != null) {
-					ChunkupSettingsUi.open()
-				}
+				ChunkupSettingsUi.open(client)
 			}
 		}
 	}

@@ -274,6 +274,20 @@ impl UnifiedKernel {
         let mut result = KernelResult::default();
         let force_gpu = stats::force_gpu();
 
+        crate::sl_log::info_start(
+            "CUDA Density Batch Module",
+            "Launching GPU density batch kernel",
+            &format!(
+                "Backend={},BatchCount={},MinY={},Height={},BlocksPerChunk={},ForceGpu={}",
+                self.backend.name(),
+                batch_count,
+                template_job.min_y,
+                template_job.height,
+                blocks_per_chunk,
+                force_gpu
+            ),
+        );
+
         let code = unsafe {
             match self.backend {
                 BackendKind::Cuda => {
@@ -323,7 +337,54 @@ impl UnifiedKernel {
                         )
                     }
                 }
-                BackendKind::OpenCl | BackendKind::CpuSimd => {
+                BackendKind::OpenCl => {
+                    if let Some(code) = gpu_loader::opencl_dispatch_density_batch(
+                        template_job,
+                        batch_count,
+                        chunk_xs.as_ptr(),
+                        chunk_zs.as_ptr(),
+                        host_density.as_mut_ptr(),
+                        host_fluid.as_mut_ptr(),
+                        blocks_per_chunk,
+                        &mut result,
+                    ) {
+                        stats::record_opencl_batch(code == 0);
+                        if code == 0 {
+                            code
+                        } else if force_gpu {
+                            return Err(code);
+                        } else {
+                            stats::record_cpu_fallback_batch();
+                            super::types::chunkup_kernel_dispatch_density_batch(
+                                template_job as *const _,
+                                batch_count,
+                                chunk_xs.as_ptr(),
+                                chunk_zs.as_ptr(),
+                                host_density.as_mut_ptr(),
+                                host_fluid.as_mut_ptr(),
+                                blocks_per_chunk,
+                                &mut result as *mut _,
+                            )
+                        }
+                    } else if force_gpu {
+                        stats::record_opencl_batch(false);
+                        return Err(-12);
+                    } else {
+                        stats::record_cpu_fallback_batch();
+                        stats::record_cpu_batch();
+                        super::types::chunkup_kernel_dispatch_density_batch(
+                            template_job as *const _,
+                            batch_count,
+                            chunk_xs.as_ptr(),
+                            chunk_zs.as_ptr(),
+                            host_density.as_mut_ptr(),
+                            host_fluid.as_mut_ptr(),
+                            blocks_per_chunk,
+                            &mut result as *mut _,
+                        )
+                    }
+                }
+                BackendKind::CpuSimd => {
                     stats::record_cpu_batch();
                     super::types::chunkup_kernel_dispatch_density_batch(
                         template_job as *const _,

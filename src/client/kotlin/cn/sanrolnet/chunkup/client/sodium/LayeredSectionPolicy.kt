@@ -1,5 +1,6 @@
 package cn.sanrolnet.chunkup.client.sodium
 
+import cn.sanrolnet.chunkup.ChunkupConfig
 import net.minecraft.core.SectionPos
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -19,22 +20,19 @@ object LayeredSectionPolicy {
 
 	@JvmStatic
 	val enabled: Boolean
-		get() = System.getProperty("chunkup.layeredSections", "true").toBoolean()
+		get() = ChunkupConfig.layeredSections
 
 	@JvmStatic
 	val layersPerTick: Int
-		get() = System.getProperty("chunkup.layeredSections.rate", "3")
-			.toIntOrNull()?.coerceIn(1, 16) ?: 3
+		get() = ChunkupConfig.layeredSectionsRate
 
 	@JvmStatic
 	val initialDepth: Int
-		get() = System.getProperty("chunkup.layeredSections.initialDepth", "1")
-			.toIntOrNull()?.coerceIn(0, 16) ?: 1
+		get() = ChunkupConfig.layeredSectionsInitialDepth
 
 	@JvmStatic
 	val headroomSections: Int
-		get() = System.getProperty("chunkup.layeredSections.headroom", "2")
-			.toIntOrNull()?.coerceIn(0, 8) ?: 2
+		get() = ChunkupConfig.layeredSectionsHeadroom
 
 	@JvmStatic
 	fun resetAnchor(blockY: Int) {
@@ -76,6 +74,6 @@ object LayeredSectionPolicy {
 		if (!enabled) {
 			return "layeredSections=off"
 		}
-		return "layered anchor=${anchorSectionY.get()} depthBelow=${depthBelow.get()} headroom=$headroomSections"
+		return "layered anchor=${anchorSectionY.get()} depthBelow=${depthBelow.get()}/rate=$layersPerTick headroom=$headroomSections"
 	}
 }

@@ -21,11 +21,11 @@ public abstract class NoiseBasedChunkGeneratorMixin {
 		StructureManager structureManager,
 		RandomState randomState,
 		ChunkAccess chunk,
-		int minY,
-		int height,
+		int minimumCellY,
+		int cellHeight,
 		CallbackInfoReturnable<ChunkAccess> cir
 	) {
-		if (ChunkDensityGeneration.tryReplaceNoiseFill(chunk, minY, height)) {
+		if (ChunkDensityGeneration.tryReplaceNoiseFill(blender, chunk, minimumCellY, cellHeight)) {
 			cir.setReturnValue(chunk);
 			cir.cancel();
 		}
@@ -40,8 +40,8 @@ public abstract class NoiseBasedChunkGeneratorMixin {
 		CallbackInfo ci
 	) {
 		if (cn.sanrolnet.chunkup.minecraft.generation.ChunkSurfaceGeneration.tryReplaceBuildSurface(
-			chunk,
-			region.getLevel()
+			region,
+			chunk
 		)) {
 			ci.cancel();
 		}

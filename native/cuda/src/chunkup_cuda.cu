@@ -17,11 +17,48 @@
 #include "../common/chunkup_kernel_algo.h"
 #include "../common/chunkup_cuda_host.h"
 #include "../common/chunkup_surface.h"
+#include "../common/chunkup_sl_log.h"
 
 #include <cuda_runtime.h>
+#include <stdio.h>
 
 static ChunkupCudaPinnedChunkBuffers g_chunkup_pinned_single = {0};
 static ChunkupCudaPinnedChunkBuffers g_chunkup_pinned_batch = {0};
+static int32_t* g_chunkup_d_chunk_xs = NULL;
+static int32_t* g_chunkup_d_chunk_zs = NULL;
+static int g_chunkup_d_chunk_coords_cap = 0;
+
+static int chunkup_cuda_ensure_chunk_coords(int batch_count) {
+    if (batch_count <= g_chunkup_d_chunk_coords_cap) {
+        return 0;
+    }
+    if (g_chunkup_d_chunk_xs) {
+        cudaFree(g_chunkup_d_chunk_xs);
+    }
+    if (g_chunkup_d_chunk_zs) {
+        cudaFree(g_chunkup_d_chunk_zs);
+    }
+    g_chunkup_d_chunk_xs = NULL;
+    g_chunkup_d_chunk_zs = NULL;
+    g_chunkup_d_chunk_coords_cap = 0;
+
+    if (chunkup_cuda_check(cudaMalloc(&g_chunkup_d_chunk_xs, (size_t)batch_count * sizeof(int32_t))) != 0 ||
+        chunkup_cuda_check(cudaMalloc(&g_chunkup_d_chunk_zs, (size_t)batch_count * sizeof(int32_t))) != 0) {
+        if (g_chunkup_d_chunk_xs) {
+            cudaFree(g_chunkup_d_chunk_xs);
+        }
+        if (g_chunkup_d_chunk_zs) {
+            cudaFree(g_chunkup_d_chunk_zs);
+        }
+        g_chunkup_d_chunk_xs = NULL;
+        g_chunkup_d_chunk_zs = NULL;
+        return -10;
+    }
+    g_chunkup_d_chunk_coords_cap = batch_count;
+    return 0;
+}
+
+#define CHUNKUP_CUDA_Y_TILE 4u
 
 #ifdef __CUDACC__
 __device__ __forceinline__ uint32_t chunkup_cuda_block_index(int lx, int ly, int lz, uint32_t stride_y) {
@@ -29,8 +66,7 @@ __device__ __forceinline__ uint32_t chunkup_cuda_block_index(int lx, int ly, int
 }
 
 /**
- * 密度 + Aquifer fluid：每 (lx,lz) 列一线程，共享 5×5 router cell 缓存。
- * Grid <<<1, (16,16)>>> — 单 chunk。
+ * 密度 + Aquifer fluid：Y 维并行（block.z=4），提高 SM 占用。
  */
 __global__ void chunkup_kernel_density_fill(
     int base_x,
@@ -43,7 +79,11 @@ __global__ void chunkup_kernel_density_fill(
 ) {
     __shared__ ChunkupCellCache2D cell_cache;
 
-    const int tid = (int)(threadIdx.y * blockDim.x + threadIdx.x);
+    const int lx = (int)threadIdx.x;
+    const int lz = (int)threadIdx.y;
+    const int ly = (int)blockIdx.z * (int)blockDim.z + (int)threadIdx.z;
+
+    const int tid = (int)(threadIdx.z * blockDim.y * blockDim.x + threadIdx.y * blockDim.x + threadIdx.x);
     if (tid < 25) {
         const int ci = tid / 5;
         const int cj = tid % 5;
@@ -53,37 +93,33 @@ __global__ void chunkup_kernel_density_fill(
     }
     __syncthreads();
 
-    const int lx = (int)threadIdx.x;
-    const int lz = (int)threadIdx.y;
-    if (lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE) {
+    if (lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE || ly >= height) {
         return;
     }
 
-    for (int ly = 0; ly < height; ++ly) {
-        const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
-        const float wx = (float)(base_x + lx);
-        const float wy = (float)(min_y + ly);
-        const float wz = (float)(base_z + lz);
+    const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
+    const float wx = (float)(base_x + lx);
+    const float wy = (float)(min_y + ly);
+    const float wz = (float)(base_z + lz);
 
-        const float d = chunkup_cell_interpolated_density(
-            &chunkup_device_bundle,
-            &cell_cache,
-            base_x,
-            base_z,
-            min_y,
-            lx,
-            ly,
-            lz
-        );
-        density[idx] = d;
-        if (fluid) {
-            fluid[idx] = chunkup_router_aquifer_fluid(&chunkup_device_bundle, wx, wy, wz, d);
-        }
+    const float d = chunkup_cell_interpolated_density(
+        &chunkup_device_bundle,
+        &cell_cache,
+        base_x,
+        base_z,
+        min_y,
+        lx,
+        ly,
+        lz
+    );
+    density[idx] = d;
+    if (fluid) {
+        fluid[idx] = chunkup_router_aquifer_fluid(&chunkup_device_bundle, wx, wy, wz, d);
     }
 }
 
 /**
- * 批量 NOISE_FILL：grid.z = batch_count，每 chunk 一块 (16×16) 线程。
+ * 批量 NOISE_FILL：grid.z = z_slices * batch_count，Y 维并行。
  */
 __global__ void chunkup_kernel_density_fill_batch(
     const int32_t* chunk_xs,
@@ -96,7 +132,8 @@ __global__ void chunkup_kernel_density_fill_batch(
     uint8_t* fluid,
     int batch_count
 ) {
-    const int chunk_idx = (int)blockIdx.z;
+    const int z_slices = (height + (int)CHUNKUP_CUDA_Y_TILE - 1) / (int)CHUNKUP_CUDA_Y_TILE;
+    const int chunk_idx = (int)blockIdx.z / z_slices;
     if (chunk_idx >= batch_count) {
         return;
     }
@@ -108,7 +145,11 @@ __global__ void chunkup_kernel_density_fill_batch(
     float* chunk_density = density + (size_t)chunk_idx * blocks_per_chunk;
     uint8_t* chunk_fluid = fluid ? fluid + (size_t)chunk_idx * blocks_per_chunk : NULL;
 
-    const int tid = (int)(threadIdx.y * blockDim.x + threadIdx.x);
+    const int lx = (int)threadIdx.x;
+    const int lz = (int)threadIdx.y;
+    const int ly = (int)((blockIdx.z % (unsigned int)z_slices) * blockDim.z + threadIdx.z);
+
+    const int tid = (int)(threadIdx.z * blockDim.y * blockDim.x + threadIdx.y * blockDim.x + threadIdx.x);
     if (tid < 25) {
         const int ci = tid / 5;
         const int cj = tid % 5;
@@ -118,32 +159,28 @@ __global__ void chunkup_kernel_density_fill_batch(
     }
     __syncthreads();
 
-    const int lx = (int)threadIdx.x;
-    const int lz = (int)threadIdx.y;
-    if (lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE) {
+    if (lx >= (int)CHUNKUP_CHUNK_SIZE || lz >= (int)CHUNKUP_CHUNK_SIZE || ly >= height) {
         return;
     }
 
-    for (int ly = 0; ly < height; ++ly) {
-        const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
-        const float wx = (float)(base_x + lx);
-        const float wy = (float)(min_y + ly);
-        const float wz = (float)(base_z + lz);
+    const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
+    const float wx = (float)(base_x + lx);
+    const float wy = (float)(min_y + ly);
+    const float wz = (float)(base_z + lz);
 
-        const float d = chunkup_cell_interpolated_density(
-            &chunkup_device_bundle,
-            &cell_cache,
-            base_x,
-            base_z,
-            min_y,
-            lx,
-            ly,
-            lz
-        );
-        chunk_density[idx] = d;
-        if (chunk_fluid) {
-            chunk_fluid[idx] = chunkup_router_aquifer_fluid(&chunkup_device_bundle, wx, wy, wz, d);
-        }
+    const float d = chunkup_cell_interpolated_density(
+        &chunkup_device_bundle,
+        &cell_cache,
+        base_x,
+        base_z,
+        min_y,
+        lx,
+        ly,
+        lz
+    );
+    chunk_density[idx] = d;
+    if (chunk_fluid) {
+        chunk_fluid[idx] = chunkup_router_aquifer_fluid(&chunkup_device_bundle, wx, wy, wz, d);
     }
 }
 
@@ -394,7 +431,24 @@ static void chunkup_cuda_free_buffers(
 extern "C" CHUNKUP_API int chunkup_cuda_is_available(void) {
     int device_count = 0;
     cudaError_t err = cudaGetDeviceCount(&device_count);
-    return (err == cudaSuccess && device_count > 0) ? 1 : 0;
+    if (err != cudaSuccess || device_count <= 0) {
+        return 0;
+    }
+    cudaDeviceProp prop{};
+    if (cudaGetDeviceProperties(&prop, 0) == cudaSuccess) {
+        char params[256];
+        snprintf(
+            params,
+            sizeof(params),
+            "DeviceCount=%d,DeviceName=%s,SMCount=%d,MaxThreadsPerBlock=%d",
+            device_count,
+            prop.name,
+            prop.multiProcessorCount,
+            prop.maxThreadsPerBlock
+        );
+        CHUNKUP_SL_INFO_INIT("CUDA Probe Module", "CUDA device probe succeeded", params);
+    }
+    return 1;
 }
 
 extern "C" CHUNKUP_API int chunkup_cuda_kernel_dispatch(
@@ -454,7 +508,13 @@ extern "C" CHUNKUP_API int chunkup_cuda_kernel_dispatch(
             return -10;
         }
 
-        chunkup_kernel_density_fill<<<1, dim3(16, 16, 1)>>>(
+        const dim3 fill_block(16, 16, CHUNKUP_CUDA_Y_TILE);
+        const dim3 fill_grid(
+            1,
+            1,
+            (unsigned int)((job->height + (int)CHUNKUP_CUDA_Y_TILE - 1) / (int)CHUNKUP_CUDA_Y_TILE)
+        );
+        chunkup_kernel_density_fill<<<fill_grid, fill_block>>>(
             base_x,
             base_z,
             job->min_y,
@@ -801,39 +861,47 @@ extern "C" CHUNKUP_API int chunkup_cuda_density_fill_batch(
 
     float* d_density = g_chunkup_pinned_batch.device_density;
     uint8_t* d_fluid = g_chunkup_pinned_batch.device_fluid;
-    int32_t* d_chunk_xs = NULL;
-    int32_t* d_chunk_zs = NULL;
 
     if (host_fluid && !d_fluid) {
         return -10;
     }
-    if (chunkup_cuda_check(cudaMalloc(&d_chunk_xs, (size_t)batch_count * sizeof(int32_t))) != 0 ||
-        chunkup_cuda_check(cudaMalloc(&d_chunk_zs, (size_t)batch_count * sizeof(int32_t))) != 0) {
-        if (d_chunk_xs) cudaFree(d_chunk_xs);
-        if (d_chunk_zs) cudaFree(d_chunk_zs);
+    if (chunkup_cuda_ensure_chunk_coords(batch_count) != 0) {
         return -10;
     }
 
-    if (chunkup_cuda_check(cudaMemcpy(d_chunk_xs, chunk_xs, (size_t)batch_count * sizeof(int32_t), cudaMemcpyHostToDevice)) != 0 ||
-        chunkup_cuda_check(cudaMemcpy(d_chunk_zs, chunk_zs, (size_t)batch_count * sizeof(int32_t), cudaMemcpyHostToDevice)) != 0) {
-        cudaFree(d_chunk_xs);
-        cudaFree(d_chunk_zs);
+    if (chunkup_cuda_check(cudaMemcpy(g_chunkup_d_chunk_xs, chunk_xs, (size_t)batch_count * sizeof(int32_t), cudaMemcpyHostToDevice)) != 0 ||
+        chunkup_cuda_check(cudaMemcpy(g_chunkup_d_chunk_zs, chunk_zs, (size_t)batch_count * sizeof(int32_t), cudaMemcpyHostToDevice)) != 0) {
         return -10;
     }
 
     ChunkupNoiseBundle host_bundle;
     chunkup_noise_init_bundle(&host_bundle, template_job->seed);
     if (chunkup_cuda_check(cudaMemcpyToSymbol(chunkup_device_bundle, &host_bundle, sizeof(host_bundle))) != 0) {
-        cudaFree(d_chunk_xs);
-        cudaFree(d_chunk_zs);
         return -10;
     }
 
-    const dim3 block(16, 16, 1);
-    const dim3 grid(1, 1, (unsigned int)batch_count);
+    const int z_slices = (template_job->height + (int)CHUNKUP_CUDA_Y_TILE - 1) / (int)CHUNKUP_CUDA_Y_TILE;
+    const dim3 block(16, 16, CHUNKUP_CUDA_Y_TILE);
+    const dim3 grid(1, 1, (unsigned int)z_slices * (unsigned int)batch_count);
+
+    char params[192];
+    snprintf(
+        params,
+        sizeof(params),
+        "BatchCount=%d,Height=%d,ZSlices=%d,GridZ=%u,Block=%ux%ux%u",
+        batch_count,
+        template_job->height,
+        z_slices,
+        grid.z,
+        block.x,
+        block.y,
+        block.z
+    );
+    CHUNKUP_SL_INFO_START("CUDA Density Batch Module", "Launching CUDA density fill batch kernel", params);
+
     chunkup_kernel_density_fill_batch<<<grid, block>>>(
-        d_chunk_xs,
-        d_chunk_zs,
+        g_chunkup_d_chunk_xs,
+        g_chunkup_d_chunk_zs,
         template_job->min_y,
         template_job->height,
         CHUNKUP_BLOCKS_PER_SECTION,
@@ -844,19 +912,19 @@ extern "C" CHUNKUP_API int chunkup_cuda_density_fill_batch(
     );
     if (chunkup_cuda_check(cudaGetLastError()) != 0 ||
         chunkup_cuda_check(cudaDeviceSynchronize()) != 0) {
-        cudaFree(d_chunk_xs);
-        cudaFree(d_chunk_zs);
         return -10;
     }
 
+    CHUNKUP_SL_INFO_COMPLETE(
+        "CUDA Density Batch Module",
+        "CUDA density fill batch kernel finished",
+        params
+    );
+
     if (chunkup_cuda_pinned_copy_density_d2h(&g_chunkup_pinned_batch, total_blocks) != 0) {
-        cudaFree(d_chunk_xs);
-        cudaFree(d_chunk_zs);
         return -10;
     }
     if (host_fluid && chunkup_cuda_pinned_copy_fluid_d2h(&g_chunkup_pinned_batch, total_blocks) != 0) {
-        cudaFree(d_chunk_xs);
-        cudaFree(d_chunk_zs);
         return -10;
     }
     memcpy(host_density, g_chunkup_pinned_batch.host_density, density_bytes);
@@ -864,8 +932,6 @@ extern "C" CHUNKUP_API int chunkup_cuda_density_fill_batch(
         memcpy(host_fluid, g_chunkup_pinned_batch.host_fluid, light_bytes);
     }
 
-    cudaFree(d_chunk_xs);
-    cudaFree(d_chunk_zs);
     result->ops_completed |= CHUNKUP_OP_NOISE_FILL;
     return cudaGetLastError() == cudaSuccess ? 0 : -10;
 }

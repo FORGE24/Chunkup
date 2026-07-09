@@ -33,21 +33,31 @@ public abstract class ChunkMapMixin {
 		ChunkGenerationWorldContext.pop();
 	}
 
+	/** 实际 chunk 生成 worker（含 doFill）在此方法内执行，必须在此 push/pop。 */
+	@Inject(method = "method_17227", at = @At("HEAD"))
+	private void chunkup$pushWorldForWorker(ChunkHolder holder, ChunkAccess protoChunk, CallbackInfoReturnable<ChunkAccess> cir) {
+		ChunkGenerationWorldContext.push(this.level);
+	}
+
 	@Inject(method = "method_17227", at = @At("RETURN"))
 	private void chunkup$afterGenerated(
 		ChunkHolder holder,
 		ChunkAccess protoChunk,
 		CallbackInfoReturnable<ChunkAccess> cir
 	) {
-		ChunkAccess result = cir.getReturnValue();
-		if (!(result instanceof LevelChunk levelChunk)) {
-			return;
-		}
+		try {
+			ChunkAccess result = cir.getReturnValue();
+			if (!(result instanceof LevelChunk levelChunk)) {
+				return;
+			}
 
-		// ImposterProtoChunk 表示从磁盘加载的包装块，非本次管线新生成。
-		boolean newlyGenerated = !(protoChunk instanceof ImposterProtoChunk);
-		if (newlyGenerated) {
-			ChunkGenerationHooks.dispatch(this.level, levelChunk, ChunkGenerationStage.GENERATED, true);
+			// ImposterProtoChunk 表示从磁盘加载的包装块，非本次管线新生成。
+			boolean newlyGenerated = !(protoChunk instanceof ImposterProtoChunk);
+			if (newlyGenerated) {
+				ChunkGenerationHooks.dispatch(this.level, levelChunk, ChunkGenerationStage.GENERATED, true);
+			}
+		} finally {
+			ChunkGenerationWorldContext.pop();
 		}
 	}
 }

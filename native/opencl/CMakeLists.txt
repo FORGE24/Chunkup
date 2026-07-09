@@ -64,7 +64,9 @@ set(CHUNKUP_COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 add_library(chunkup_opencl SHARED
     src/chunkup_opencl.cpp
     ${CHUNKUP_COMMON_DIR}/chunkup_kernel_host.c
+    ${CHUNKUP_COMMON_DIR}/chunkup_batch_density_host.c
     ${CHUNKUP_COMMON_DIR}/chunkup_noise_state.c
+    ${CHUNKUP_COMMON_DIR}/chunkup_sl_log.c
 )
 
 target_include_directories(chunkup_opencl PUBLIC include)
@@ -74,6 +76,7 @@ target_include_directories(chunkup_opencl PRIVATE ${OpenCL_INCLUDE_DIRS})
 target_compile_definitions(chunkup_opencl PRIVATE
     CHUNKUP_EXPORT_BUILD
     CHUNKUP_OPENCL_KERNEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/kernels/chunkup_kernel.cl"
+    CHUNKUP_OPENCL_ROUTER_PATH="${CMAKE_CURRENT_SOURCE_DIR}/kernels/chunkup_router_codegen.clh"
 )
 
 target_link_libraries(chunkup_opencl PRIVATE ${OpenCL_LIBRARIES})

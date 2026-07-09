@@ -3,10 +3,12 @@ package cn.sanrolnet.chunkup.minecraft.generation
 import cn.sanrolnet.chunkup.Chunkup
 import cn.sanrolnet.chunkup.ChunkupConfig
 import cn.sanrolnet.chunkup.debug.ChunkupDebugStats
-import net.minecraft.server.level.ServerLevel
+import net.minecraft.core.BlockPos
+import net.minecraft.server.level.WorldGenRegion
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.chunk.ChunkAccess
+import net.minecraft.world.level.levelgen.blending.Blender
 import org.slf4j.LoggerFactory
 
 /**
@@ -41,8 +43,6 @@ object ChunkSurfaceApplier {
 		height: Int,
 	) {
 		require(layers.size == STRIDE_Y * LAYERS) { "surface layer size mismatch" }
-		val baseX = chunk.pos.minBlockX
-		val baseZ = chunk.pos.minBlockZ
 
 		for (lz in 0 until CHUNK_SIZE) {
 			for (lx in 0 until CHUNK_SIZE) {
@@ -57,12 +57,13 @@ object ChunkSurfaceApplier {
 					val worldY = surfaceY - layer
 					if (worldY < minY) continue
 					val state = mapBlock(blockId) ?: continue
-					val pos = net.minecraft.core.BlockPos(baseX + lx, worldY, baseZ + lz)
+					val pos = BlockPos(chunk.pos.minBlockX + lx, worldY, chunk.pos.minBlockZ + lz)
 					val current = chunk.getBlockState(pos)
 					if (current.isAir || current.`is`(Blocks.WATER) || current.`is`(Blocks.LAVA)) {
 						continue
 					}
-					chunk.setBlockState(pos, state, false)
+					val section = chunk.getSection(chunk.getSectionIndex(worldY))
+					section.setBlockState(lx, worldY and 15, lz, state, false)
 				}
 			}
 		}
@@ -93,8 +94,22 @@ object ChunkSurfaceGeneration {
 	private val LOGGER = LoggerFactory.getLogger("${Chunkup.MOD_ID}.generation.surface")
 
 	@JvmStatic
-	fun tryReplaceBuildSurface(chunk: ChunkAccess, level: ServerLevel): Boolean {
+	fun tryReplaceBuildSurface(region: WorldGenRegion, chunk: ChunkAccess): Boolean {
 		if (ChunkupConfig.instantLoad || !ChunkupConfig.gpuSurfaceBuild) {
+			return false
+		}
+
+		val level = region.getLevel()
+		if (!GpuGenerationCompat.isOverworld(level)) {
+			return false
+		}
+
+		val blender = Blender.of(region)
+		if (!GpuGenerationCompat.isBlendingCompatible(blender, chunk.pos.x, chunk.pos.z)) {
+			return false
+		}
+
+		if (!GpuGenerationCompat.isFreshGenerationChunk(chunk)) {
 			return false
 		}
 

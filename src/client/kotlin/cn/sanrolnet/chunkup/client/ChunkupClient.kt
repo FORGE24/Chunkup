@@ -2,6 +2,7 @@ package cn.sanrolnet.chunkup.client
 
 import cn.sanrolnet.chunkup.Chunkup
 import cn.sanrolnet.chunkup.client.bridge.ClientEngineBridge
+import cn.sanrolnet.chunkup.client.infection.InfectionRenderBootstrap
 import cn.sanrolnet.chunkup.client.pipeline.ClientSectionPipeline
 import cn.sanrolnet.chunkup.client.settings.ChunkupSettingsKeybind
 import cn.sanrolnet.chunkup.client.settings.SettingsNative
@@ -20,6 +21,7 @@ object ChunkupClient : ClientModInitializer {
 		if (SodiumIntegration.isLoaded) {
 			ClientSectionPipeline.init()
 			LayeredSectionBootstrap.register()
+			InfectionRenderBootstrap.register()
 			if (SodiumIntegration.useGpuSectionMeshes) {
 				LOGGER.info("Chunkup Rust section fast-path enabled (Sodium fallback for complex sections)")
 			} else {
@@ -28,6 +30,6 @@ object ChunkupClient : ClientModInitializer {
 		}
 
 		ChunkupSettingsKeybind.register()
-		LOGGER.info("Chunkup settings ready (in-game key: ,)")
+		LOGGER.info("Chunkup settings ready (key: , — main menu & in-game)")
 	}
 }

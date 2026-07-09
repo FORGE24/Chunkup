@@ -101,6 +101,20 @@ public final class SectionBlockStateEncoder {
 		return states;
 	}
 
+	/** 无 WorldSlice 时的简化编码（感染区批量打包用）。 */
+	public static byte encodeBlockState(BlockState state) {
+		if (state.isAir() && !state.hasBlockEntity()) {
+			return 0;
+		}
+		if (!state.getFluidState().isEmpty()) {
+			return 2;
+		}
+		if (state.getRenderShape() != RenderShape.MODEL) {
+			return 0;
+		}
+		return state.canOcclude() ? (byte) 1 : 0;
+	}
+
 	private static byte encodeBlock(
 			BlockState state,
 			WorldSlice slice,

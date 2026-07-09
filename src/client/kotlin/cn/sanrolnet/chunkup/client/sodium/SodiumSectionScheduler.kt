@@ -47,9 +47,9 @@ object SodiumSectionScheduler {
 	}
 
 	private fun tryScheduleRebuild(key: SectionKey): Boolean {
-		val sectionX = key.sectionX shr 4
-		val sectionY = key.sectionY shr 4
-		val sectionZ = key.sectionZ shr 4
+		val sectionX = key.sectionX
+		val sectionY = key.sectionY
+		val sectionZ = key.sectionZ
 
 		val renderer = SodiumWorldRenderer.instanceNullable() ?: return false
 

@@ -1,5 +1,6 @@
 use super::{cuda::CudaBackend, cpu, opencl::OpenClBackend};
 use crate::kernel::UnifiedKernel;
+use crate::sl_log;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
@@ -38,6 +39,11 @@ impl EngineContext {
         };
 
         let kernel = UnifiedKernel::new(backend);
+        sl_log::info_status(
+            "Compute Backend Module",
+            "Active compute backend selected",
+            &format!("Backend={},CudaProbe={},OpenClProbe={}", backend.name(), CudaBackend::probe(), OpenClBackend::probe()),
+        );
         Self { backend, kernel }
     }
 

@@ -116,7 +116,30 @@ ChunkupKernelJob → UnifiedKernel::dispatch (Rust)
   → chunkup_opencl_kernel_dispatch (native/opencl/kernels/chunkup_kernel.cl)
 ```
 
-Fabric 阶段 → Op：`NOISE_FILL` → 密度；`GENERATED` → 光照 + 剔除。
+## 「第一次传染」渲染（实验）
+
+以玩家为中心的 32×32 chunk 区域全部 `FULL` 后，一次性打包全部 section → GPU batch mesh → 旁路 Sodium。
+
+```
+ClientTick → InfectionCoordinator
+  ACCUMULATING  等待 1024 chunk FULL，区内 Sodium mesh/draw 门控（可见空洞）
+  PACKING       InfectionBatchPackager 采集 4096×N 字节 → native（待接 CUDA）
+  INFECTED      Sodium 旁路，ChunkupGpuWorldRenderer 绘制（Phase 2）
+```
+
+| 开关 | 默认 | 说明 |
+|------|------|------|
+| `chunkup.infectionRender` | `false` | 总开关 |
+| `chunkup.infectionRender.radius` | `16` | 半宽 → 32×32 区域 |
+
+客户端代码：`src/client/kotlin/.../infection/`
+
+Phase 2 待实现：
+- `CHUNKUP_OP_SECTION_MESH` CUDA batch kernel
+- `chunkup_infection_upload.cu` — pinned host → VBO/SSBO
+- `SodiumWorldRenderer` mixin — 区内跳过 terrain draw
+- `ChunkupGpuWorldRenderer` — 单次 draw call 全区域
+
 
 ## 后端探测顺序
 

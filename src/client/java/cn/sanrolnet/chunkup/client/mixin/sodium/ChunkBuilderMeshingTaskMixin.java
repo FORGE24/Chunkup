@@ -1,5 +1,6 @@
 package cn.sanrolnet.chunkup.client.mixin.sodium;
 
+import cn.sanrolnet.chunkup.client.infection.InfectionCoordinator;
 import cn.sanrolnet.chunkup.client.bridge.ClientEngineBridge;
 import cn.sanrolnet.chunkup.client.sodium.SectionBlockStateEncoder;
 import cn.sanrolnet.chunkup.client.sodium.SectionMeshStats;
@@ -48,6 +49,16 @@ public abstract class ChunkBuilderMeshingTaskMixin {
 		ChunkBuilderTaskAccessor task = (ChunkBuilderTaskAccessor) this;
 		RenderSection render = task.chunkup$getRender();
 		int buildTime = task.chunkup$getBuildTime();
+		if (!InfectionCoordinator.allowSodiumForSection(render.getOriginX(), render.getOriginZ())) {
+			cir.setReturnValue(new ChunkBuildOutput(
+					render,
+					BuiltSectionInfo.EMPTY,
+					Collections.emptyMap(),
+					buildTime
+			));
+			cir.cancel();
+			return;
+		}
 
 		BlockRenderCache cache = buildContext.cache;
 		ChunkBuilderMeshingTaskAccess contextAccess = (ChunkBuilderMeshingTaskAccess) this;

@@ -10,6 +10,7 @@ import cn.sanrolnet.chunkup.minecraft.generation.ChunkLoadPipeline
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
+import cn.sanrolnet.chunkup.log.ChunkupSlLog
 import org.slf4j.LoggerFactory
 
 /**
@@ -21,9 +22,21 @@ object ChunkupEvents {
 	fun register(engine: EngineBridge) {
 		ChunkGenerationHooks.bindEngine(engine)
 
+		ServerLifecycleEvents.SERVER_STARTED.register { server ->
+			ChunkGenerationWorldContext.bindServer(server)
+		}
+
 		ServerLifecycleEvents.SERVER_STARTING.register { server ->
 			ChunkGenerationWorldContext.bindServer(server)
 			if (engine.initialize()) {
+				ChunkupSlLog.infoInit(
+					"Server Lifecycle Module",
+					"Chunkup engine ready for world generation",
+					"Backend=${engine.activeComputeBackend()},GpuWorldGen=${ChunkupConfig.gpuWorldGen}," +
+						"InstantLoad=${ChunkupConfig.instantLoad},DensityBatch=${ChunkupConfig.gpuDensityBatch}," +
+						"BatchSize=${ChunkupConfig.gpuDensityBatchSize},CoalesceMs=${ChunkupConfig.gpuDensityBatchCoalesceMs}," +
+						"MinFlush=${ChunkupConfig.gpuDensityBatchMinFlush},MaxWaitMs=${ChunkupConfig.gpuDensityBatchMaxWaitMs}",
+				)
 				LOGGER.info(
 					"Chunkup engine initialized via {} (compute backend={}, gpuWorldGen={}, instantLoad={}, forceGpu={}, genGpu={}, loadedGpu={}, gpuSkylightApply={}, densityBatch={}, batchSize={})",
 					engine.backendName,

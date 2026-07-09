@@ -3,9 +3,9 @@
 	"id": "chunkup",
 	"version": "${version}",
 	"name": "Chunkup",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "Chunkup 是一个面向 Minecraft 1.20.1 (Fabric) 的 GPU 区块生成加速模组，提供 CUDA/OpenCL 密度生成批处理与可选地表构建路径，在保证与原版世界生成兼容的前提下提升新区块生成效率。",
 	"authors": [
-		"Me!"
+		"FORGE24"
 	],
 	"contact": {
 		"homepage": "https://fabricmc.net/",
@@ -24,6 +24,12 @@
 		"client": [
 			{
 				"value": "cn.sanrolnet.chunkup.client.ChunkupClient",
+				"adapter": "kotlin"
+			}
+		],
+		"modmenu": [
+			{
+				"value": "cn.sanrolnet.chunkup.client.settings.ChunkupModMenuIntegration",
 				"adapter": "kotlin"
 			}
 		],
@@ -49,6 +55,7 @@
 		"fabric-language-kotlin": "*"
 	},
 	"suggests": {
-		"sodium": "*"
+		"sodium": "*",
+		"modmenu": "*"
 	}
 }

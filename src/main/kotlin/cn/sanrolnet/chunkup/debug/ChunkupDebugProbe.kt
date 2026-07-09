@@ -25,13 +25,35 @@ object ChunkupDebugProbe {
 	private val gpuBatchCount = LongAdder()
 	private val skylightApplyNs = LongAdder()
 	private val skylightApplyCount = LongAdder()
-	private val lastGpuBatchMs = AtomicLong(0)
-	private val lastDensityReadMs = AtomicLong(0)
-	private val lastSkylightApplyMs = AtomicLong(0)
+	private val lastGpuBatchMsAtomic = AtomicLong(0)
+	private val lastDensityReadMsAtomic = AtomicLong(0)
+	private val lastSkylightApplyMsAtomic = AtomicLong(0)
+
+	@JvmStatic
+	val lastSkylightApplyMs: Long
+		get() = lastSkylightApplyMsAtomic.get()
+
+	@JvmStatic
+	fun avgDensityReadMs(): Long {
+		val count = densityReadCount.sum().coerceAtLeast(1)
+		return densityReadNs.sum() / count / 1_000_000
+	}
+
+	@JvmStatic
+	fun avgGpuBatchMs(): Long {
+		val count = gpuBatchCount.sum().coerceAtLeast(1)
+		return gpuBatchNs.sum() / count / 1_000_000
+	}
+
+	@JvmStatic
+	fun lastDensityReadMs(): Long = lastDensityReadMsAtomic.get()
+
+	@JvmStatic
+	fun lastGpuBatchMs(): Long = lastGpuBatchMsAtomic.get()
 
 	@JvmStatic
 	val enabled: Boolean
-		get() = System.getProperty("chunkup.debug.probe", "true").toBoolean()
+		get() = System.getProperty("chunkup.debug.probe", "false").toBoolean()
 
 	@JvmStatic
 	fun record(label: String, nanos: Long, extra: String? = null) {
@@ -39,17 +61,17 @@ object ChunkupDebugProbe {
 			"density.read" -> {
 				densityReadNs.add(nanos)
 				densityReadCount.increment()
-				lastDensityReadMs.set(nanos / 1_000_000)
+				lastDensityReadMsAtomic.set(nanos / 1_000_000)
 			}
 			"gpu.batch" -> {
 				gpuBatchNs.add(nanos)
 				gpuBatchCount.increment()
-				lastGpuBatchMs.set(nanos / 1_000_000)
+				lastGpuBatchMsAtomic.set(nanos / 1_000_000)
 			}
 			"skylight.apply" -> {
 				skylightApplyNs.add(nanos)
 				skylightApplyCount.increment()
-				lastSkylightApplyMs.set(nanos / 1_000_000)
+				lastSkylightApplyMsAtomic.set(nanos / 1_000_000)
 			}
 		}
 		if (enabled && (gpuBatchCount.sum() <= 8L || gpuBatchCount.sum() % 128L == 0L)) {
@@ -77,7 +99,7 @@ object ChunkupDebugProbe {
 		val batchN = gpuBatchCount.sum().coerceAtLeast(1)
 		val applyN = skylightApplyCount.sum()
 		val applyLine = if (applyN > 0L) {
-			" skylight.apply avg=${skylightApplyNs.sum() / applyN / 1_000_000}ms last=${lastSkylightApplyMs.get()}ms count=$applyN"
+			" skylight.apply avg=${skylightApplyNs.sum() / applyN / 1_000_000}ms last=${lastSkylightApplyMsAtomic.get()}ms count=$applyN"
 		} else if (ChunkupConfig.gpuSkylightApply) {
 			" skylight.apply waiting (need LOADED+loadedGpu=true)"
 		} else {
@@ -85,8 +107,8 @@ object ChunkupDebugProbe {
 		}
 		return listOf(
 			"Chunkup Probe (chunkup.debug.probe=true)",
-			" density.read avg=${densityReadNs.sum() / readN / 1_000_000}ms last=${lastDensityReadMs.get()}ms count=${densityReadCount.sum()}",
-			" gpu.batch avg=${gpuBatchNs.sum() / batchN / 1_000_000}ms last=${lastGpuBatchMs.get()}ms count=$batchN",
+			" density.read avg=${densityReadNs.sum() / readN / 1_000_000}ms last=${lastDensityReadMsAtomic.get()}ms count=${densityReadCount.sum()}",
+			" gpu.batch avg=${gpuBatchNs.sum() / batchN / 1_000_000}ms last=${lastGpuBatchMsAtomic.get()}ms count=$batchN",
 			applyLine,
 		)
 	}

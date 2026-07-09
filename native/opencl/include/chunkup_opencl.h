@@ -25,6 +25,18 @@ CHUNKUP_API int chunkup_opencl_kernel_dispatch_batch(
     ChunkupKernelResult* result
 );
 
+/** NOISE_FILL 攒批：当前走 CPU cell-fill（与单 chunk dispatch 一致），符号供回退链探测。 */
+CHUNKUP_API int chunkup_opencl_density_fill_batch(
+    const ChunkupKernelJob* template_job,
+    int batch_count,
+    const int32_t* chunk_xs,
+    const int32_t* chunk_zs,
+    float* host_density,
+    uint8_t* host_fluid,
+    uint32_t blocks_per_chunk,
+    ChunkupKernelResult* result
+);
+
 #ifdef __cplusplus
 }
 #endif

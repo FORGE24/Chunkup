@@ -1,5 +1,6 @@
 package cn.sanrolnet.chunkup.client.sodium
 
+import cn.sanrolnet.chunkup.client.pipeline.SectionLoadPreRenderer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents
 import net.minecraft.core.SectionPos
@@ -7,6 +8,13 @@ import org.slf4j.LoggerFactory
 
 object LayeredSectionBootstrap {
 	private val LOGGER = LoggerFactory.getLogger("chunkup.client.layered")
+
+	/** 水平位移超过此阈值视为传送，清空预渲染队列并重新锚定分层。 */
+	private const val TELEPORT_DISTANCE_SQ = 48.0 * 48.0
+
+	private var lastPlayerX = 0.0
+	private var lastPlayerZ = 0.0
+	private var trackingPosition = false
 
 	@JvmStatic
 	fun register() {
@@ -17,7 +25,15 @@ object LayeredSectionBootstrap {
 		ClientPlayConnectionEvents.JOIN.register { _, _, client ->
 			client.player?.let { player ->
 				LayeredSectionPolicy.resetAnchor(player.blockY)
+				lastPlayerX = player.x
+				lastPlayerZ = player.z
+				trackingPosition = true
 			}
+		}
+
+		ClientPlayConnectionEvents.DISCONNECT.register { _, _ ->
+			trackingPosition = false
+			SectionLoadPreRenderer.clear()
 		}
 
 		ClientTickEvents.END_CLIENT_TICK.register { client ->
@@ -27,6 +43,19 @@ object LayeredSectionBootstrap {
 			val level = client.level ?: return@register
 			val player = client.player
 			if (player != null) {
+				if (trackingPosition) {
+					val dx = player.x - lastPlayerX
+					val dz = player.z - lastPlayerZ
+					if (dx * dx + dz * dz > TELEPORT_DISTANCE_SQ) {
+						SectionLoadPreRenderer.onPlayerTeleported()
+						LayeredSectionPolicy.resetAnchor(player.blockY)
+						LOGGER.debug("layered reset after large move dx={} dz={}", dx, dz)
+					}
+				}
+				lastPlayerX = player.x
+				lastPlayerZ = player.z
+				trackingPosition = true
+
 				val playerSection = SectionPos.blockToSectionCoord(player.blockY)
 				if (kotlin.math.abs(playerSection - LayeredSectionPolicy.currentAnchorSectionY()) > 4) {
 					LayeredSectionPolicy.resetAnchor(player.blockY)

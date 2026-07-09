@@ -143,7 +143,9 @@ function Build-CudaWithNvcc($Root, $OutDir) {
     }
 
     $cu = Join-Path $Root "native\cuda\src\chunkup_cuda.cu"
+    $cudaHost = Join-Path $Root "native\cuda\src\chunkup_cuda_host.c"
     $hostc = Join-Path $Root "native\common\chunkup_kernel_host.c"
+    $slLog = Join-Path $Root "native\common\chunkup_sl_log.c"
     $incCuda = Join-Path $Root "native\cuda\include"
     $incCommon = Join-Path $Root "native\common"
     $out = Join-Path $GpuOutDir "chunkup_cuda.dll"
@@ -152,7 +154,7 @@ function Build-CudaWithNvcc($Root, $OutDir) {
     $nvccFlags = @(
         "-shared", "-o", "`"$out`"",
         "-DCHUNKUP_EXPORT_BUILD",
-        "`"$cu`"", "`"$hostc`"", "`"$noiseState`"",
+        "`"$cu`"", "`"$cudaHost`"", "`"$hostc`"", "`"$slLog`"", "`"$noiseState`"",
         "-I`"$incCuda`"", "-I`"$incCommon`"",
         "--compiler-options", "/utf-8"
     )
@@ -264,11 +266,14 @@ if ($VerboseBuild) {
     Write-BuildLog "==> Verbose build enabled (-VerboseBuild / CHUNKUP_BUILD_VERBOSE=1)"
 }
 
-$cargoProfileFlag = if ($Configuration -eq "Debug") { @() } else { @("--release") }
 Write-BuildLog "==> Building Rust core ($Configuration)"
 Push-Location $EngineDir
 try {
-    cargo build @cargoProfileFlag
+    if ($Configuration -eq "Debug") {
+        cargo build
+    } else {
+        cargo build --release
+    }
     if (-not $?) {
         Write-Error "Rust build failed"
         exit 1
@@ -291,6 +296,15 @@ if ($IsWindows -or ($env:OS -match "Windows")) {
 }
 
 if (Get-Command cmake -ErrorAction SilentlyContinue) {
+    $codegenScript = Join-Path $Root "scripts\codegen-opencl-router.py"
+    if (Test-Path $codegenScript) {
+        $python = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "python3" }
+        Write-BuildLog "==> Generating OpenCL router sources"
+        & $python $codegenScript
+        if (-not $?) {
+            Write-BuildLog "==> OpenCL codegen failed; skipping OpenCL build"
+        }
+    }
     $openclArgs = @("-DCMAKE_BUILD_TYPE=$Configuration")
     if ($IsWindows -or ($env:OS -match "Windows")) {
         $cudaRoot = $env:CUDA_PATH

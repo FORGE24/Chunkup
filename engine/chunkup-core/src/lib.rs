@@ -10,6 +10,7 @@ pub mod lighting;
 pub mod memory;
 pub mod noise;
 pub mod section;
+pub mod sl_log;
 pub mod stats;
 
 use std::sync::Mutex;
@@ -25,9 +26,11 @@ const DEFAULT_WORLD_SEED: u32 = 0x10F0_0001;
 
 pub fn initialize() -> bool {
     let ctx = EngineContext::bootstrap();
-    log::info!(
-        "chunkup engine online: backend={}",
-        ctx.active_backend().name()
+    let backend = ctx.active_backend().name();
+    sl_log::info_init(
+        "Engine Bootstrap Module",
+        "Chunkup compute engine initialized",
+        &format!("Backend={backend},ForceGpu={}", stats::force_gpu()),
     );
     match ENGINE.lock() {
         Ok(mut slot) => {
@@ -174,12 +177,14 @@ pub fn generate_chunk_density_batch(
         )
         .ok()?;
 
-    log::debug!(
-        "chunkup density batch backend={} count={} min_y={} height={}",
-        ctx.active_backend().name(),
-        batch_count,
-        min_y,
-        height
+    let backend = ctx.active_backend().name();
+    sl_log::info_complete(
+        "CUDA Density Batch Module",
+        "GPU density batch dispatch finished",
+        &format!(
+            "Backend={backend},BatchCount={batch_count},MinY={min_y},Height={height},BlocksPerChunk={}",
+            BLOCKS_PER_SECTION * height as u32
+        ),
     );
 
     let mut outputs = Vec::with_capacity(chunk_coords.len());

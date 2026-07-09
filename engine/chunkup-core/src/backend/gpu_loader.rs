@@ -312,3 +312,29 @@ pub fn opencl_dispatch_batch(
         )
     })
 }
+
+pub fn opencl_dispatch_density_batch(
+    template_job: &KernelJob,
+    batch_count: i32,
+    chunk_xs: *const i32,
+    chunk_zs: *const i32,
+    host_density: *mut f32,
+    host_fluid: *mut u8,
+    blocks_per_chunk: u32,
+    result: *mut KernelResult,
+) -> Option<i32> {
+    let lib = opencl_lib()?;
+    let batch = lib.density_fill_batch?;
+    Some(unsafe {
+        batch(
+            template_job as *const _,
+            batch_count,
+            chunk_xs,
+            chunk_zs,
+            host_density,
+            host_fluid,
+            blocks_per_chunk,
+            result,
+        )
+    })
+}

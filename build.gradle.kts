@@ -30,6 +30,10 @@ repositories {
 			includeGroup("maven.modrinth")
 		}
 	}
+	maven {
+		name = "TerraformersMC"
+		url = uri("https://maven.terraformersmc.com/")
+	}
 }
 
 loom {
@@ -45,24 +49,21 @@ loom {
 	runs {
 		named("client") {
 			val nativeDir = layout.buildDirectory.dir("native").get().asFile.absolutePath
+			fun propOrDefault(gradleKey: String, default: String): String =
+				if (project.hasProperty(gradleKey)) project.property(gradleKey).toString() else default
+
 			vmArg("-Djava.library.path=$nativeDir")
 			vmArg("-Dchunkup.native.dir=$nativeDir")
-			vmArg("-Dchunkup.instantLoad=true")
-			vmArg("-Dchunkup.gpuWorldGen=false")
-			vmArg("-Dchunkup.gpuDensityBatch=false")
-			vmArg("-Dchunkup.layeredSections=true")
-			vmArg("-Dchunkup.layeredSections.rate=4")
-			vmArg("-Dchunkup.gpuSections=false")
-			vmArg("-Dchunkup.forceGpu=true")
-			vmArg("-Dchunkup.gpuChunkLoad.generated=false")
-			vmArg("-Dchunkup.gpuChunkLoad.loaded=false")
-			vmArg("-Dchunkup.gpuSkylightApply=false")
-			vmArg("-Dchunkup.gpuChunkLoad.batchSize=64")
-			vmArg("-Dchunkup.gpuChunkLoad.flushInterval=20")
-			vmArg("-Dchunkup.gpuChunkLoad.minFlushBatch=16")
+			// Phase 1 client baseline + GPU world gen (CUDA→OpenCL→CPU)
+			vmArg("-Dchunkup.gpuWorldGen=true")
+			vmArg("-Dchunkup.gpuDensityBatch.size=${propOrDefault("chunkupDensityBatchSize", "32")}")
+			vmArg("-Dchunkup.gpuDensityBatch.coalesceMs=${propOrDefault("chunkupDensityCoalesceMs", "0")}")
+			vmArg("-Dchunkup.gpuDensityBatch.maxWaitMs=${propOrDefault("chunkupDensityMaxWaitMs", "8")}")
+			vmArg("-Dchunkup.gpuDensityBatch.minFlush=${propOrDefault("chunkupDensityMinFlush", "1")}")
+			vmArg("-Dchunkup.forceGpu=false")
 			vmArg("-Dchunkup.f3Debug=true")
-			vmArg("-Dchunkup.debug.probe=true")
 			vmArg("-DRUST_LOG=warn,chunkup_core=info")
+			// CLI: .\gradlew.bat runClient -PchunkupDensityMinFlush=16 -PchunkupDensityCoalesceMs=30
 		}
 	}
 }
@@ -86,6 +87,10 @@ dependencies {
 	// Sodium：compileOnly 用于 Mixin 类型；runClient 可选加载
 	modCompileOnly("maven.modrinth:sodium:mc1.20.1-0.5.11")
 	modRuntimeOnly("maven.modrinth:sodium:mc1.20.1-0.5.11")
+
+	// Mod Menu 配置入口（compileOnly API，dev 环境 runtime 加载）
+	modCompileOnly("com.terraformersmc:modmenu:7.2.2")
+	modRuntimeOnly("com.terraformersmc:modmenu:7.2.2")
 }
 
 tasks.processResources {
@@ -155,10 +160,19 @@ tasks.register<Exec>("extractOverworldRouter") {
 	commandLine(python, layout.projectDirectory.file("scripts/extract-overworld-router.py").asFile.absolutePath)
 }
 
+tasks.register<Exec>("codegenOpenclRouter") {
+	group = "chunkup"
+	description = "Generate OpenCL router sources from shared C headers"
+	dependsOn("extractOverworldRouter")
+	workingDir = layout.projectDirectory.asFile
+	val python = if (System.getProperty("os.name").lowercase().contains("windows")) "python" else "python3"
+	commandLine(python, layout.projectDirectory.file("scripts/codegen-opencl-router.py").asFile.absolutePath)
+}
+
 tasks.register<Exec>("buildGpuNativeEngine") {
 	group = "chunkup"
 	description = "Build CUDA/OpenCL backends via scripts/build-engine.ps1"
-	dependsOn("extractOverworldRouter")
+	dependsOn("codegenOpenclRouter")
 	workingDir = layout.projectDirectory.asFile
 	val script = layout.projectDirectory.file("scripts/build-engine.ps1").asFile
 	if (System.getProperty("os.name").lowercase().contains("windows")) {
@@ -176,7 +190,7 @@ tasks.register<Exec>("buildGpuNativeEngine") {
 tasks.register<Exec>("buildGpuNativeEngineDebug") {
 	group = "chunkup"
 	description = "Build CUDA/OpenCL + Rust backends (Debug, with debug symbols)"
-	dependsOn("extractOverworldRouter")
+	dependsOn("codegenOpenclRouter")
 	workingDir = layout.projectDirectory.asFile
 	val script = layout.projectDirectory.file("scripts/build-engine.ps1").asFile
 	if (System.getProperty("os.name").lowercase().contains("windows")) {
