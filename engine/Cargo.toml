@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "chunkup-core",
     "chunkup-cpu",
+    "chunkup-cwa",
+    "chunkup-runtime",
 ]
 
 [workspace.package]

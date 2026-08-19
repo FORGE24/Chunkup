@@ -1,0 +1,13 @@
+[package]
+name = "chunkup-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Chunkup CPU/GPU 异构运行时:ChunkSlot 状态机 + ChunkRuntime"
+
+[lib]
+crate-type = ["rlib"]
+name = "chunkup_runtime"
+
+[dependencies]
+chunkup-cwa = { path = "../chunkup-cwa" }

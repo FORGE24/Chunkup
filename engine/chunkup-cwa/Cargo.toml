@@ -1,0 +1,16 @@
+[package]
+name = "chunkup-cwa"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Chunkup World Archive (CWA) v0.1 数据协议与序列化"
+
+[lib]
+crate-type = ["rlib"]
+name = "chunkup_cwa"
+
+[dependencies]
+crc32c = "0.6"
+# zstd 用于 chunk payload 压缩(GPU 友好:有 CUDA 解码头实现)。
+# block 位图用内置 RLE,不走 zstd。
+zstd = "0.13"
