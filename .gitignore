@@ -36,6 +36,7 @@ bin/
 # fabric
 
 run/
+mcsrc/
 
 # rust / native
 

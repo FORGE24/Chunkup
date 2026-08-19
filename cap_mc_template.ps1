@@ -1,0 +1,15 @@
+﻿Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; public class WRect { [DllImport(\"user32.dll\")] public static extern bool GetWindowRect(IntPtr h, out RECT r); [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L; public int T; public int R; public int B; } }";
+Add-Type -AssemblyName System.Drawing;
+$h = [IntPtr]HWND_PLACEHOLDER;
+$r = New-Object WRect+RECT;
+[WRect]::GetWindowRect($h, [ref]$r) | Out-Null;
+$w = $r.R - $r.L; $h2 = $r.B - $r.T;
+Write-Host ("Window rect: " + $r.L + "," + $r.T + " size: " + $w + "x" + $h2);
+$bm = New-Object System.Drawing.Bitmap($w, $h2);
+$gr = [System.Drawing.Graphics]::FromImage($bm);
+$gr.CopyFromScreen($r.L, $r.T, 0, 0, (New-Object System.Drawing.Size($w, $h2)));
+$pt = "d:\Chunkup\mc_window.png";
+$bm.Save($pt, [System.Drawing.Imaging.ImageFormat]::Png);
+$gr.Dispose(); $bm.Dispose();
+$sz = (Get-Item $pt).Length;
+Write-Host ("Saved: " + $pt + " Size: " + $sz);

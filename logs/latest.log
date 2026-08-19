@@ -1,0 +1,38 @@
+[23:20:46] [main/INFO]: [STDOUT]: PF seedLo: -8118485274630516485, seedHi: 8241557746459281790
+[23:20:46] [main/INFO]: [STDOUT]: HASH minecraft:continentalness lo=-8968799236159986078 hi=-5789877984865097555
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:continentalness d3 0.19044285622148405 0.1207653543463929 0.17033795011615105
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:continentalness ib 0 163
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:continentalness ib 1 45
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:continentalness ib 2 51
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:continentalness ib 3 98
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:continentalness ib 4 105
+[23:20:46] [main/INFO]: [STDOUT]: HASH minecraft:erosion lo=-3448470997537165352 hi=5157273775208757888
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:erosion d3 0.35342989930101665 0.343306993334739 0.5255615676471727
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:erosion ib 0 145
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:erosion ib 1 192
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:erosion ib 2 56
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:erosion ib 3 115
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:erosion ib 4 182
+[23:20:46] [main/INFO]: [STDOUT]: HASH minecraft:terrain lo=2226279196109926164 hi=-2108001439914377933
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:terrain d3 0.1338938243189114 0.762788445165477 0.49167466051362607
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:terrain ib 0 44
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:terrain ib 1 75
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:terrain ib 2 41
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:terrain ib 3 234
+[23:20:46] [main/INFO]: [STDOUT]: RS minecraft:terrain ib 4 83
+[23:20:46] [main/INFO]: [STDOUT]: NN continentalness(0.5,0.5,0.5) -0.36581004826028307
+[23:20:46] [main/INFO]: [STDOUT]: NN continentalness(1.5,2.5,3.5) -0.3805116196671919
+[23:20:46] [main/INFO]: [STDOUT]: NN continentalness(-100.25,64.0,200.75) -0.0787997904424786
+[23:20:46] [main/INFO]: [STDOUT]: FORK seedLo: 3513050629383982151, seedHi: 2227727584598759204
+[23:20:46] [main/INFO]: [STDOUT]: OHASH octave_-9 lo=589938935082149425 hi=5662732952352513153
+[23:20:46] [main/INFO]: [STDOUT]: OHASH octave_-8 lo=1078206144088113246 hi=5239585857299060288
+[23:20:46] [main/INFO]: [STDOUT]: OHASH octave_0 lo=-3096497386513543812 hi=7932617871068508937
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_-9 xo=142.27870948218558 yo=7.29776993457628 zo=55.03980226018368
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_-9 noise(0.5,0.5,0.5) 0.5175779007349477
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_-9 noise(1.5,2.5,3.5) 0.06701745613792076
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_-8 xo=110.5132626803499 yo=35.96457086344682 zo=176.94388151538283
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_-8 noise(0.5,0.5,0.5) -0.19202927403401407
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_-8 noise(1.5,2.5,3.5) -0.2722429434523955
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_0 xo=230.6167196113046 yo=8.522567928326993 zo=59.074725246535536
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_0 noise(0.5,0.5,0.5) -0.36689500905051586
+[23:20:46] [main/INFO]: [STDOUT]: IN octave_0 noise(1.5,2.5,3.5) -0.14368608130424365
