@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use chunkup_cwa::id::ChunkId;
 use chunkup_cwa::state::Lifecycle;
 
+use crate::coordinator::DataLocation;
 use crate::gpu_handle::GpuBufferHandle;
 use crate::slot::ChunkSlot;
 use crate::state_machine::{
@@ -275,6 +276,34 @@ impl ChunkRuntime {
             .collect()
     }
 
+    /// 查询 chunk 的 block/density 数据当前所在地。
+    ///
+    /// 用于 [LoadCoordinator::plan_next](crate::coordinator::LoadCoordinator::plan_next)
+    /// 分派 air 判定到 CPU 或 GPU kernel:
+    /// - `GPU_OWNED` 且持有 `gpu_handle` → [DataLocation::Gpu](crate::coordinator::DataLocation::Gpu)
+    ///   (数据全程留 VRAM,不回拉 CPU)
+    /// - `CPU_OWNED` 且持有 `cpu_payload` → [DataLocation::Cpu](crate::coordinator::DataLocation::Cpu)
+    /// - 其余(未注册 / 未驻留 / Evicting 中) → [DataLocation::Absent](crate::coordinator::DataLocation::Absent)
+    pub fn chunk_data_location(&self, chunk_id: ChunkId) -> DataLocation {
+        match self.slots.get(&chunk_id.0) {
+            None => DataLocation::Absent,
+            Some(slot) => {
+                if slot.state.is_gpu_owned() && slot.has_gpu_handle() {
+                    DataLocation::Gpu
+                } else if slot.state.is_cpu_owned() && slot.has_cpu_payload() {
+                    DataLocation::Cpu
+                } else if slot.has_gpu_handle() {
+                    // 有 GPU handle 但非 GPU_OWNED(例如 CpuResident 阶段保留的旧 GPU 副本)
+                    DataLocation::Gpu
+                } else if slot.has_cpu_payload() {
+                    DataLocation::Cpu
+                } else {
+                    DataLocation::Absent
+                }
+            }
+        }
+    }
+
     fn slot_or_err(&mut self, chunk_id: ChunkId) -> Result<&mut ChunkSlot, TransitionError> {
         self.slots
             .get_mut(&chunk_id.0)
@@ -441,5 +470,49 @@ mod tests {
         let id = cid(99, 99);
         let err = rt.begin_cpu_load(id);
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn chunk_data_location_tracks_lifecycle() {
+        let mut rt = ChunkRuntime::new();
+        let id = cid(5, 5);
+
+        // 未注册 → Absent
+        assert_eq!(rt.chunk_data_location(id), DataLocation::Absent);
+
+        // Archived → Absent(磁盘有,内存无)
+        rt.register_archived(id);
+        assert_eq!(rt.chunk_data_location(id), DataLocation::Absent);
+
+        // CpuResident → Cpu
+        rt.begin_cpu_load(id).unwrap();
+        rt.finish_cpu_load(id, vec![0u8; 100].into_boxed_slice()).unwrap();
+        assert_eq!(rt.chunk_data_location(id), DataLocation::Cpu);
+
+        // GpuResident → Gpu(数据搬到 VRAM,CPU_OWNED 清除)
+        rt.begin_gpu_stage(id).unwrap();
+        rt.finish_gpu_stage(id, GpuBufferHandle::new(id.0, 100)).unwrap();
+        assert_eq!(rt.chunk_data_location(id), DataLocation::Gpu);
+
+        // GpuActive → 仍 Gpu
+        rt.activate(id).unwrap();
+        assert_eq!(rt.chunk_data_location(id), DataLocation::Gpu);
+
+        // 回写后 → Cpu(GPU_OWNED 清除,CPU_OWNED 置位)
+        rt.mark_gpu_dirty(id).unwrap();
+        rt.begin_cpu_sync(id).unwrap();
+        rt.finish_cpu_sync(id, vec![0u8; 100].into_boxed_slice()).unwrap();
+        assert_eq!(rt.chunk_data_location(id), DataLocation::Cpu);
+
+        // 驱逐后 → Absent
+        rt.begin_evict(id).unwrap();
+        rt.finish_evict(id).unwrap();
+        assert_eq!(rt.chunk_data_location(id), DataLocation::Absent);
+    }
+
+    #[test]
+    fn chunk_data_location_absent_for_unknown() {
+        let rt = ChunkRuntime::new();
+        assert_eq!(rt.chunk_data_location(cid(0, 0)), DataLocation::Absent);
     }
 }

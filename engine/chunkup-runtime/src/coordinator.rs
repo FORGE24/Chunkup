@@ -6,19 +6,21 @@
 //!    下层依赖上层的 air 判定时不会等待。
 //! 2. **跨 chunk 同 section_y 同 face 顶底一致**:由 [FaceSection] 聚合校验。
 //!    不一致的组被标记为 [StaleReason::InconsistentHeights],需要重算。
-//! 3. **air 跳过**:全 air 的面([SectionFace::is_all_air])不产生 GPU 任务。
-//! 4. **CPU/GPU 分工**:
-//!    - CPU 跑 air 判定([CpuTask::AirDetermination]):扫描 block 数据填 air 位图。
-//!    - GPU 跑 mesh/light([GpuTask::MeshBuild] / [GpuTask::LightCompute]):消费 air 位图做 culling。
+//! 3. **air 跳过**:全 air 的面([SectionFace::is_all_air])不产生 mesh/light 任务。
+//! 4. **CPU/GPU 分工(消除乒乓搬运)**:
+//!    - air 判定:数据(density/block)在 GPU 时走 [GpuTask::AirDetermination](全程留 VRAM);
+//!      否则回退 [CpuTask::AirDetermination]。
+//!    - mesh/light:[GpuTask::MeshBuild] / [GpuTask::LightCompute] 消费 air 位图做 culling。
 //!
 //! ## 工作流
 //!
 //! ```text
 //!  enqueue_section_y(15, [chunk_a, chunk_b])
 //!  enqueue_section_y(14, [chunk_c])
-//!  plan_next()  → SectionLoadPlan { section_y: 15, ... }   // 最高优先
-//!  plan_next()  → SectionLoadPlan { section_y: 14, ... }
-//!  plan_next()  → None
+//!  plan_next(face_lookup, data_location, face_sections)
+//!      → SectionLoadPlan { section_y: 15, ... }   // 最高优先
+//!  plan_next(...)  → SectionLoadPlan { section_y: 14, ... }
+//!  plan_next(...)  → None
 //! ```
 
 use std::collections::BTreeMap;
@@ -27,6 +29,19 @@ use chunkup_cwa::face::{
     face_section_flags, FaceDir, FaceSection, SectionFace, HEIGHT_ALL_AIR,
 };
 use chunkup_cwa::id::ChunkId;
+
+/// chunk 的 block/density 数据当前所在地。
+///
+/// 用于 [LoadCoordinator::plan_next] 分派 air 判定到 CPU 或 GPU。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DataLocation {
+    /// 数据在 CPU RAM(`cpu_payload` 持有,`CPU_OWNED`)。
+    Cpu,
+    /// 数据在 GPU VRAM(`gpu_handle` 持有,`GPU_OWNED`),可直接喂 GPU kernel。
+    Gpu,
+    /// 数据未驻留(需要先 load 或 fallback CPU 路径)。
+    Absent,
+}
 
 /// CPU 侧任务:air 判定。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,9 +54,20 @@ pub struct CpuTask {
     pub face_dir: FaceDir,
 }
 
-/// GPU 侧任务:mesh / light。
+/// GPU 侧任务:air 判定 / mesh / light。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GpuTask {
+    /// air 判定(GPU kernel):扫描 VRAM 中的 block 数据填 air 位图。
+    ///
+    /// 数据全程留 VRAM,不回拉 CPU。输出 air 位图写入 VRAM 的 [SectionFace]。
+    AirDetermination {
+        /// 目标 chunk。
+        chunk_id: ChunkId,
+        /// 目标 section_y。
+        section_y: u8,
+        /// 目标面方向。
+        face_dir: FaceDir,
+    },
     /// 构建 mesh(消费 air 位图做 face culling)。
     MeshBuild {
         /// 目标 chunk。
@@ -136,16 +162,20 @@ impl LoadCoordinator {
 
     /// 取出最高 section_y 的加载计划(自上而下)。
     ///
-    /// 调用方需提供每个 (chunk_id, face_dir) 对应的 [SectionFace] 与
-    /// 该 section_y 下每个 face_dir 的 [FaceSection] 聚合索引。
-    /// `face_lookup` 返回 `None` 的面视为缺失(产生 NEIGHBOR_MISSING 标记)。
-    pub fn plan_next<F>(
+    /// 调用方需提供:
+    /// - `face_lookup`:每个 (chunk_id, face_dir) 对应的 [SectionFace](返回 `None` 视为邻居缺失,跳过)。
+    /// - `data_location`:每个 chunk 的 block/density 数据所在地。数据在 GPU 时
+    ///   air 判定走 [GpuTask::AirDetermination](全程留 VRAM),否则走 [CpuTask::AirDetermination]。
+    /// - `face_sections`:该 section_y 下每个 face_dir 的 [FaceSection] 聚合索引。
+    pub fn plan_next<F, L>(
         &mut self,
         mut face_lookup: F,
+        data_location: L,
         face_sections: Vec<FaceSection>,
     ) -> Option<SectionLoadPlan>
     where
         F: FnMut(ChunkId, FaceDir) -> Option<SectionFace>,
+        L: Fn(ChunkId) -> DataLocation,
     {
         // BTreeMap 最大 key = 最高 section_y
         let (&section_y, chunks) = self.pending.iter().last()?;
@@ -175,6 +205,8 @@ impl LoadCoordinator {
 
         // 为每个 chunk × 每个 face_dir 产出任务
         for &chunk_id in chunks {
+            // 查询数据所在地:决定 air 判定走 CPU 还是 GPU
+            let loc = data_location(chunk_id);
             for dir_index in 0..FaceDir::COUNT {
                 let dir = FaceDir::from_u8(dir_index as u8).unwrap();
                 let face = match face_lookup(chunk_id, dir) {
@@ -185,15 +217,22 @@ impl LoadCoordinator {
                     }
                 };
 
-                // air 判定永远跑(CPU 负责填/校验位图)
-                cpu_tasks.push(CpuTask {
-                    chunk_id,
-                    section_y,
-                    face_dir: dir,
-                });
+                // air 判定:数据在 GPU → GPU kernel(数据留 VRAM);否则 CPU
+                match loc {
+                    DataLocation::Gpu => gpu_tasks.push(GpuTask::AirDetermination {
+                        chunk_id,
+                        section_y,
+                        face_dir: dir,
+                    }),
+                    DataLocation::Cpu | DataLocation::Absent => cpu_tasks.push(CpuTask {
+                        chunk_id,
+                        section_y,
+                        face_dir: dir,
+                    }),
+                }
 
                 if face.is_all_air() {
-                    // 全 air:跳过 GPU mesh/light
+                    // 全 air:跳过 mesh/light
                     skipped_air_faces.push((chunk_id, dir));
                 } else {
                     // 非 air:产 GPU mesh + light
@@ -247,6 +286,21 @@ mod tests {
         SectionFace::all_air(dir)
     }
 
+    /// 默认 data_location closure:所有 chunk 都在 CPU(保持原测试语义)。
+    fn cpu_loc(_: ChunkId) -> DataLocation {
+        DataLocation::Cpu
+    }
+
+    /// 所有 chunk 都在 GPU。
+    fn gpu_loc(_: ChunkId) -> DataLocation {
+        DataLocation::Gpu
+    }
+
+    /// 所有 chunk 未驻留。
+    fn absent_loc(_: ChunkId) -> DataLocation {
+        DataLocation::Absent
+    }
+
     #[test]
     fn enqueue_dedupes() {
         let mut coord = LoadCoordinator::new();
@@ -262,16 +316,16 @@ mod tests {
         coord.enqueue_section_y(15, &[cid(0, 0)]);
         coord.enqueue_section_y(10, &[cid(0, 0)]);
 
-        let plan = coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), Vec::new()).unwrap();
+        let plan = coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), cpu_loc, Vec::new()).unwrap();
         assert_eq!(plan.section_y, 15);
 
-        let plan = coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), Vec::new()).unwrap();
+        let plan = coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), cpu_loc, Vec::new()).unwrap();
         assert_eq!(plan.section_y, 10);
 
-        let plan = coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), Vec::new()).unwrap();
+        let plan = coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), cpu_loc, Vec::new()).unwrap();
         assert_eq!(plan.section_y, 5);
 
-        assert!(coord.plan_next(|_, _| None, Vec::new()).is_none());
+        assert!(coord.plan_next(|_, _| None, cpu_loc, Vec::new()).is_none());
     }
 
     #[test]
@@ -280,7 +334,7 @@ mod tests {
         coord.enqueue_section_y(3, &[cid(0, 0)]);
 
         let plan = coord
-            .plan_next(|_, dir| Some(air_face(dir)), Vec::new())
+            .plan_next(|_, dir| Some(air_face(dir)), cpu_loc, Vec::new())
             .unwrap();
         // 6 个面全 air → 6 个 CPU 任务,0 GPU 任务
         assert_eq!(plan.cpu_tasks.len(), 6);
@@ -294,7 +348,7 @@ mod tests {
         coord.enqueue_section_y(3, &[cid(0, 0)]);
 
         let plan = coord
-            .plan_next(|_, dir| Some(solid_face(dir)), Vec::new())
+            .plan_next(|_, dir| Some(solid_face(dir)), cpu_loc, Vec::new())
             .unwrap();
         // 6 个面全 solid → 6 CPU + 12 GPU(每面 mesh + light)
         assert_eq!(plan.cpu_tasks.len(), 6);
@@ -309,7 +363,7 @@ mod tests {
 
         // 只返回 PosY 的 face,其他 None
         let plan = coord
-            .plan_next(|_, dir| if dir == FaceDir::PosY { Some(solid_face(dir)) } else { None }, Vec::new())
+            .plan_next(|_, dir| if dir == FaceDir::PosY { Some(solid_face(dir)) } else { None }, cpu_loc, Vec::new())
             .unwrap();
         assert_eq!(plan.cpu_tasks.len(), 1);
         assert_eq!(plan.cpu_tasks[0].face_dir, FaceDir::PosY);
@@ -328,7 +382,7 @@ mod tests {
         assert_eq!(fs.flags & face_section_flags::CONSISTENT, 0);
 
         let plan = coord
-            .plan_next(|_, _| Some(solid_face(FaceDir::PosY)), vec![fs])
+            .plan_next(|_, _| Some(solid_face(FaceDir::PosY)), cpu_loc, vec![fs])
             .unwrap();
         assert!(plan.stale_faces.iter().any(|(d, r)| {
             *d == FaceDir::PosY && *r == StaleReason::InconsistentHeights
@@ -347,7 +401,7 @@ mod tests {
         assert!(fs.flags & face_section_flags::CONSISTENT != 0);
 
         let plan = coord
-            .plan_next(|_, _| Some(solid_face(FaceDir::PosY)), vec![fs])
+            .plan_next(|_, _| Some(solid_face(FaceDir::PosY)), cpu_loc, vec![fs])
             .unwrap();
         // PosY 不应在 stale_faces 中(consistent 且非全 air)
         assert!(!plan.stale_faces.iter().any(|(d, _)| *d == FaceDir::PosY));
@@ -359,7 +413,7 @@ mod tests {
         coord.enqueue_section_y(5, &[cid(0, 0), cid(1, 0), cid(2, 0)]);
 
         let plan = coord
-            .plan_next(|_, dir| Some(solid_face(dir)), Vec::new())
+            .plan_next(|_, dir| Some(solid_face(dir)), cpu_loc, Vec::new())
             .unwrap();
         // 3 chunks × 6 faces = 18 CPU, 36 GPU
         assert_eq!(plan.cpu_tasks.len(), 18);
@@ -373,11 +427,11 @@ mod tests {
         coord.enqueue_section_y(2, &[cid(0, 0)]);
         assert_eq!(coord.done_count(), 0);
 
-        coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), Vec::new()).unwrap();
+        coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), cpu_loc, Vec::new()).unwrap();
         assert_eq!(coord.done_count(), 1);
         assert_eq!(coord.pending_count(), 1);
 
-        coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), Vec::new()).unwrap();
+        coord.plan_next(|_, _| Some(solid_face(FaceDir::PosY)), cpu_loc, Vec::new()).unwrap();
         assert_eq!(coord.done_count(), 2);
         assert_eq!(coord.pending_count(), 0);
     }
@@ -387,7 +441,7 @@ mod tests {
         let mut coord = LoadCoordinator::new();
         coord.enqueue_section_y(1, &[cid(0, 0)]);
         coord.enqueue_section_y(2, &[cid(0, 0)]);
-        coord.plan_next(|_, _| None, Vec::new()).unwrap();
+        coord.plan_next(|_, _| None, cpu_loc, Vec::new()).unwrap();
 
         coord.reset();
         assert_eq!(coord.pending_count(), 0);
@@ -397,12 +451,114 @@ mod tests {
     #[test]
     fn empty_coordinator_returns_none() {
         let mut coord = LoadCoordinator::new();
-        assert!(coord.plan_next(|_, _| None, Vec::new()).is_none());
+        assert!(coord.plan_next(|_, _| None, cpu_loc, Vec::new()).is_none());
     }
 
     #[test]
     fn air_bitmap_size_sanity() {
         // 确保 256-bit = 32 字节
         assert_eq!(AIR_BITMAP_SIZE, 32);
+    }
+
+    // =========================================================================
+    // GPU air 判定分派测试(消除乒乓搬运)
+    // =========================================================================
+
+    #[test]
+    fn gpu_resident_chunk_uses_gpu_air_determination() {
+        let mut coord = LoadCoordinator::new();
+        coord.enqueue_section_y(3, &[cid(0, 0)]);
+
+        // 数据在 GPU → air 判定走 GpuTask::AirDetermination
+        let plan = coord
+            .plan_next(|_, dir| Some(solid_face(dir)), gpu_loc, Vec::new())
+            .unwrap();
+        // 6 个面全 solid → 0 CPU 任务,6 GPU air + 12 GPU mesh/light = 18 GPU
+        assert!(plan.cpu_tasks.is_empty(), "GPU 数据应走 GPU air 判定");
+        let gpu_air_count = plan
+            .gpu_tasks
+            .iter()
+            .filter(|t| matches!(t, GpuTask::AirDetermination { .. }))
+            .count();
+        assert_eq!(gpu_air_count, 6);
+        // mesh + light 仍各 6
+        assert_eq!(plan.gpu_tasks.len(), 18);
+    }
+
+    #[test]
+    fn cpu_resident_chunk_uses_cpu_air_determination() {
+        let mut coord = LoadCoordinator::new();
+        coord.enqueue_section_y(3, &[cid(0, 0)]);
+
+        let plan = coord
+            .plan_next(|_, dir| Some(solid_face(dir)), cpu_loc, Vec::new())
+            .unwrap();
+        // CPU 路径:air 判定走 CpuTask,GPU 只有 mesh/light
+        assert_eq!(plan.cpu_tasks.len(), 6);
+        let gpu_air_count = plan
+            .gpu_tasks
+            .iter()
+            .filter(|t| matches!(t, GpuTask::AirDetermination { .. }))
+            .count();
+        assert_eq!(gpu_air_count, 0);
+    }
+
+    #[test]
+    fn absent_chunk_falls_back_to_cpu() {
+        let mut coord = LoadCoordinator::new();
+        coord.enqueue_section_y(3, &[cid(0, 0)]);
+
+        // 数据未驻留 → fallback CPU air 判定(调用方需先 load)
+        let plan = coord
+            .plan_next(|_, dir| Some(solid_face(dir)), absent_loc, Vec::new())
+            .unwrap();
+        assert_eq!(plan.cpu_tasks.len(), 6);
+        assert_eq!(plan.gpu_tasks.len(), 12);
+    }
+
+    #[test]
+    fn mixed_locations_in_one_plan() {
+        let mut coord = LoadCoordinator::new();
+        // chunk_a 在 GPU,chunk_b 在 CPU
+        coord.enqueue_section_y(5, &[cid(0, 0), cid(1, 0)]);
+
+        let plan = coord
+            .plan_next(
+                |_, dir| Some(solid_face(dir)),
+                |c| if c == cid(0, 0) { DataLocation::Gpu } else { DataLocation::Cpu },
+                Vec::new(),
+            )
+            .unwrap();
+        // chunk_a:6 GPU air + 12 GPU mesh/light = 18 GPU,0 CPU
+        // chunk_b:6 CPU air + 12 GPU mesh/light = 6 CPU,12 GPU
+        assert_eq!(plan.cpu_tasks.len(), 6);
+        assert_eq!(plan.gpu_tasks.len(), 30); // 18 + 12
+        // CPU 任务全属于 chunk_b
+        assert!(plan.cpu_tasks.iter().all(|t| t.chunk_id == cid(1, 0)));
+    }
+
+    #[test]
+    fn gpu_air_determination_skipped_for_all_air_face() {
+        let mut coord = LoadCoordinator::new();
+        coord.enqueue_section_y(3, &[cid(0, 0)]);
+
+        // 数据在 GPU 但面全 air → air 判定仍跑(GPU 校验位图),mesh/light 跳过
+        let plan = coord
+            .plan_next(|_, dir| Some(air_face(dir)), gpu_loc, Vec::new())
+            .unwrap();
+        // 6 GPU air(校验),0 mesh/light
+        let gpu_air_count = plan
+            .gpu_tasks
+            .iter()
+            .filter(|t| matches!(t, GpuTask::AirDetermination { .. }))
+            .count();
+        assert_eq!(gpu_air_count, 6);
+        let mesh_light_count = plan
+            .gpu_tasks
+            .iter()
+            .filter(|t| matches!(t, GpuTask::MeshBuild { .. } | GpuTask::LightCompute { .. }))
+            .count();
+        assert_eq!(mesh_light_count, 0);
+        assert_eq!(plan.skipped_air_faces.len(), 6);
     }
 }

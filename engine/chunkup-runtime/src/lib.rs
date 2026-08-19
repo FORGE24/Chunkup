@@ -36,7 +36,7 @@ pub mod scheduler;
 pub mod slot;
 pub mod state_machine;
 
-pub use coordinator::{CpuTask, GpuTask, LoadCoordinator, SectionLoadPlan};
+pub use coordinator::{CpuTask, DataLocation, GpuTask, LoadCoordinator, SectionLoadPlan};
 pub use gpu_handle::GpuBufferHandle;
 pub use runtime::ChunkRuntime;
 pub use scheduler::{EvictionCandidate, EvictionContext, ResidencyScheduler};
