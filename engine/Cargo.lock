@@ -103,6 +103,8 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "chunkup-cpu",
+ "chunkup-cwa",
+ "chunkup-runtime",
  "env_logger",
  "jni",
  "libloading",

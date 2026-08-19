@@ -3,6 +3,43 @@
 
 #define CHUNKUP_BLOCKS_PER_SECTION (CHUNKUP_CHUNK_SIZE * CHUNKUP_CHUNK_SIZE)
 
+/**
+ * 从预计算角点缓存做三线性插值（不调用 3D 噪声）。
+ * 与 chunkup_cell_interpolate_density 对齐。
+ */
+inline float chunkup_cell_interpolate_density_cache_cl(
+    __local const float* corner_density,
+    int ck_base,
+    int y_corners,
+    int lx,
+    int ly,
+    int lz
+) {
+    const int ci = chunkup_cell_index_x(lx);
+    const int cj = chunkup_cell_index_x(lz);
+    const int ck = chunkup_cell_index_y(ly);
+
+    const float tx = chunkup_cell_frac(lx - ci * (int)CHUNKUP_CELL_W, (int)CHUNKUP_CELL_W);
+    const float ty = chunkup_cell_frac(ly - ck * (int)CHUNKUP_CELL_H, (int)CHUNKUP_CELL_H);
+    const float tz = chunkup_cell_frac(lz - cj * (int)CHUNKUP_CELL_W, (int)CHUNKUP_CELL_W);
+
+    const int ck_local = ck - ck_base;
+
+    const int stride_ck = 5;
+    const int stride_ci = y_corners * stride_ck;
+
+    const float c000 = corner_density[ci * stride_ci + ck_local * stride_ck + cj];
+    const float c100 = corner_density[(ci + 1) * stride_ci + ck_local * stride_ck + cj];
+    const float c010 = corner_density[ci * stride_ci + (ck_local + 1) * stride_ck + cj];
+    const float c110 = corner_density[(ci + 1) * stride_ci + (ck_local + 1) * stride_ck + cj];
+    const float c001 = corner_density[ci * stride_ci + ck_local * stride_ck + (cj + 1)];
+    const float c101 = corner_density[(ci + 1) * stride_ci + ck_local * stride_ck + (cj + 1)];
+    const float c011 = corner_density[ci * stride_ci + (ck_local + 1) * stride_ck + (cj + 1)];
+    const float c111 = corner_density[(ci + 1) * stride_ci + (ck_local + 1) * stride_ck + (cj + 1)];
+
+    return chunkup_trilinear(tx, ty, tz, c000, c100, c010, c110, c001, c101, c011, c111);
+}
+
 inline int chunkup_is_solid_cl(float density) { return density > 0.0f; }
 
 inline int chunkup_skylight_opacity_cl(float density) {
@@ -70,6 +107,7 @@ __kernel void chunkup_kernel_density_fill(
     uint stride_y
 ) {
     __local ChunkupCellCache2D cell_cache;
+    __local float corner_density[5 * 3 * 5];
 
     const int lx = (int)get_local_id(0);
     const int lz = (int)get_local_id(1);
@@ -77,12 +115,35 @@ __kernel void chunkup_kernel_density_fill(
 
     const int tid = (int)(get_local_id(2) * get_local_size(1) * get_local_size(0) +
         get_local_id(1) * get_local_size(0) + get_local_id(0));
+    const int block_threads = (int)(get_local_size(0) * get_local_size(1) * get_local_size(2));
+
     if (tid < 25) {
         const int ci = tid / 5;
         const int cj = tid % 5;
         const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
         const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
         cell_cache.samples[ci][cj] = chunkup_router_sample_2d(bundle, wx, wz);
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    const int y_tile_start = (int)(get_group_id(2) * get_local_size(2));
+    const int y_tile_end = y_tile_start + (int)get_local_size(2);
+    const int ck_base = y_tile_start / (int)CHUNKUP_CELL_H;
+    const int ck_last = ((y_tile_end > 0 ? y_tile_end - 1 : 0)) / (int)CHUNKUP_CELL_H;
+    const int y_corners = ck_last - ck_base + 2;
+
+    const int total_corners = 5 * y_corners * 5;
+    for (int i = tid; i < total_corners; i += block_threads) {
+        const int ci = i / (y_corners * 5);
+        const int rem = i % (y_corners * 5);
+        const int ck = rem / 5;
+        const int cj = rem % 5;
+        const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
+        const float wy = (float)(min_y + (ck_base + ck) * (int)CHUNKUP_CELL_H);
+        const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
+        const ChunkupRouterSample2D* s2d = &cell_cache.samples[ci][cj];
+        corner_density[ci * (y_corners * 5) + ck * 5 + cj] =
+            chunkup_router_initial_density(bundle, s2d, wx, wy, wz);
     }
     barrier(CLK_LOCAL_MEM_FENCE);
 
@@ -94,15 +155,8 @@ __kernel void chunkup_kernel_density_fill(
     const float wx = (float)(base_x + lx);
     const float wy = (float)(min_y + ly);
     const float wz = (float)(base_z + lz);
-    const float d = chunkup_cell_interpolated_density_cl(
-        bundle,
-        &cell_cache,
-        base_x,
-        base_z,
-        min_y,
-        lx,
-        ly,
-        lz
+    const float d = chunkup_cell_interpolate_density_cache_cl(
+        corner_density, ck_base, y_corners, lx, ly, lz
     );
     density[idx] = d;
     if (fluid) {
@@ -129,6 +183,7 @@ __kernel void chunkup_kernel_density_fill_batch(
     }
 
     __local ChunkupCellCache2D cell_cache;
+    __local float corner_density[5 * 3 * 5];
 
     const int base_x = chunk_xs[chunk_idx] * (int)CHUNKUP_CHUNK_SIZE;
     const int base_z = chunk_zs[chunk_idx] * (int)CHUNKUP_CHUNK_SIZE;
@@ -141,12 +196,35 @@ __kernel void chunkup_kernel_density_fill_batch(
 
     const int tid = (int)(get_local_id(2) * get_local_size(1) * get_local_size(0) +
         get_local_id(1) * get_local_size(0) + get_local_id(0));
+    const int block_threads = (int)(get_local_size(0) * get_local_size(1) * get_local_size(2));
+
     if (tid < 25) {
         const int ci = tid / 5;
         const int cj = tid % 5;
         const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
         const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
         cell_cache.samples[ci][cj] = chunkup_router_sample_2d(bundle, wx, wz);
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    const int y_tile_start = (int)((get_group_id(2) % z_slices) * (int)CHUNKUP_OPENCL_Y_TILE);
+    const int y_tile_end = y_tile_start + (int)CHUNKUP_OPENCL_Y_TILE;
+    const int ck_base = y_tile_start / (int)CHUNKUP_CELL_H;
+    const int ck_last = ((y_tile_end > 0 ? y_tile_end - 1 : 0)) / (int)CHUNKUP_CELL_H;
+    const int y_corners = ck_last - ck_base + 2;
+
+    const int total_corners = 5 * y_corners * 5;
+    for (int i = tid; i < total_corners; i += block_threads) {
+        const int ci = i / (y_corners * 5);
+        const int rem = i % (y_corners * 5);
+        const int ck = rem / 5;
+        const int cj = rem % 5;
+        const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
+        const float wy = (float)(min_y + (ck_base + ck) * (int)CHUNKUP_CELL_H);
+        const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
+        const ChunkupRouterSample2D* s2d = &cell_cache.samples[ci][cj];
+        corner_density[ci * (y_corners * 5) + ck * 5 + cj] =
+            chunkup_router_initial_density(bundle, s2d, wx, wy, wz);
     }
     barrier(CLK_LOCAL_MEM_FENCE);
 
@@ -158,15 +236,8 @@ __kernel void chunkup_kernel_density_fill_batch(
     const float wx = (float)(base_x + lx);
     const float wy = (float)(min_y + ly);
     const float wz = (float)(base_z + lz);
-    const float d = chunkup_cell_interpolated_density_cl(
-        bundle,
-        &cell_cache,
-        base_x,
-        base_z,
-        min_y,
-        lx,
-        ly,
-        lz
+    const float d = chunkup_cell_interpolate_density_cache_cl(
+        corner_density, ck_base, y_corners, lx, ly, lz
     );
     chunk_density[idx] = d;
     if (chunk_fluid) {

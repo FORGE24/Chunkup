@@ -63,20 +63,20 @@ object ChunkupConfig {
 		get() = System.getProperty("chunkup.gpuDensityBatch.size", if (gpuWorldGen) "64" else "16")
 			.toIntOrNull()?.coerceIn(1, 128) ?: if (gpuWorldGen) 64 else 16
 
-	/** 攒批合并窗口（毫秒）；gpuWorldGen 默认 0 = 尽快 flush，优先生成速度。 */
+	/** 攒批合并窗口（毫秒）；gpuWorldGen 默认 4ms，多 worker 合并到同一次 GPU kernel。 */
 	val gpuDensityBatchCoalesceMs: Long
-		get() = System.getProperty("chunkup.gpuDensityBatch.coalesceMs", if (gpuWorldGen) "0" else "8")
-			.toLongOrNull()?.coerceIn(0, 100) ?: if (gpuWorldGen) 0L else 8L
+		get() = System.getProperty("chunkup.gpuDensityBatch.coalesceMs", if (gpuWorldGen) "4" else "8")
+			.toLongOrNull()?.coerceIn(0, 100) ?: if (gpuWorldGen) 4L else 8L
 
 	/** 攒批最长等待（毫秒） */
 	val gpuDensityBatchMaxWaitMs: Long
-		get() = System.getProperty("chunkup.gpuDensityBatch.maxWaitMs", if (gpuWorldGen) "8" else "25")
-			.toLongOrNull()?.coerceIn(1, 200) ?: if (gpuWorldGen) 8L else 25L
+		get() = System.getProperty("chunkup.gpuDensityBatch.maxWaitMs", if (gpuWorldGen) "16" else "25")
+			.toLongOrNull()?.coerceIn(1, 200) ?: if (gpuWorldGen) 16L else 25L
 
-	/** 部分 flush 的最小 pending 数；世界生成默认 1，避免 worker 互相等待。 */
+	/** 部分 flush 的最小 pending 数；世界生成默认 8，避免每个 chunk 单独付一次 GPU kernel 启动开销（~700μs）。 */
 	val gpuDensityBatchMinFlush: Int
-		get() = System.getProperty("chunkup.gpuDensityBatch.minFlush", if (gpuWorldGen) "1" else "4")
-			.toIntOrNull()?.coerceIn(1, 128) ?: if (gpuWorldGen) 1 else 4
+		get() = System.getProperty("chunkup.gpuDensityBatch.minFlush", if (gpuWorldGen) "8" else "4")
+			.toIntOrNull()?.coerceIn(1, 128) ?: if (gpuWorldGen) 8 else 4
 
 	/** GPU buildSurface 薄层（grass/dirt/sand），默认 gpuWorldGen 时开启。 */
 	val gpuSurfaceBuild: Boolean

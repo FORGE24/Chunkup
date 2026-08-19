@@ -17,6 +17,8 @@ object ChunkupClient : ClientModInitializer {
 	override fun onInitializeClient() {
 		if (!ClientEngineBridge.initialize()) {
 			LOGGER.warn("Chunkup client engine unavailable")
+		} else if (ClientEngineBridge.runtimeCreate()) {
+			LOGGER.info("Chunkup runtime initialized (CPU/GPU residency state machine)")
 		}
 		if (SodiumIntegration.isLoaded) {
 			ClientSectionPipeline.init()

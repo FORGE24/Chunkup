@@ -11,6 +11,8 @@ name = "chunkup_core"
 
 [dependencies]
 chunkup-cpu = { path = "../chunkup-cpu" }
+chunkup-runtime = { path = "../chunkup-runtime" }
+chunkup-cwa = { path = "../chunkup-cwa" }
 jni = "0.21"
 libloading = "0.8"
 log = "0.4"

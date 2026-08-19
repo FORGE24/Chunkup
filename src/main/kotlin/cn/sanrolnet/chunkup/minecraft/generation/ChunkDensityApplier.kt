@@ -45,15 +45,20 @@ object ChunkDensityApplier {
 			"fluid size ${fluid.size} != expected $expected (height=$height)"
 		}
 
+		val sectionCount = chunk.sections.size
 		var sectionIndex = Int.MIN_VALUE
 		var section: LevelChunkSection? = null
 
 		for (ly in 0 until height) {
 			val worldY = minY + ly
 			val secIdx = chunk.getSectionIndex(worldY)
+			// 越界 section 直接跳过(例如 toWorldBounds 裁剪前遗留的越界高度)
+			if (secIdx < 0 || secIdx >= sectionCount) {
+				continue
+			}
 			if (secIdx != sectionIndex) {
 				sectionIndex = secIdx
-				section = chunk.getSection(sectionIndex)
+				section = chunk.sections[secIdx]
 			}
 			val localY = worldY and 15
 			val layerBase = ly * STRIDE_Y

@@ -34,7 +34,8 @@ fn main() {
         build.debug(true);
         let target = std::env::var("TARGET").unwrap_or_default();
         if target.contains("msvc") {
-            build.flag("/Zi").flag("/Od");
+            // /FS: 允许多个 cl.exe 进程共享写入 vc140.pdb,避免并行编译锁冲突
+            build.flag("/Zi").flag("/Od").flag("/FS");
         }
     }
 

@@ -9,6 +9,8 @@ use crate::section::{self, SectionMeshResult};
 use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, generate_chunk_density_batch, generate_surface_thin, initialize, is_available, process_chunk_load, process_chunk_load_batch, shutdown};
 use crate::backend::set_native_library_directory;
 
+mod runtime;
+
 static SECTION_BUFFERS: LazyLock<Mutex<HashMap<isize, Vec<u8>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 

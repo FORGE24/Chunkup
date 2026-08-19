@@ -31,9 +31,14 @@ object ChunkDensityCoords {
 			return null
 		}
 		val baseMinY = level?.minBuildHeight ?: -64
+		val baseMaxY = (level?.height ?: 384) + baseMinY // -64 + 448 = 384 for vanilla
 		val cellBlockHeight = noiseCellHeightBlocks(level)
-		val worldMinY = baseMinY + minimumCellY * cellBlockHeight
-		val worldHeight = cellHeight * cellBlockHeight
+		val rawMinY = baseMinY + minimumCellY * cellBlockHeight
+		val rawMaxY = rawMinY + cellHeight * cellBlockHeight
+		// 裁剪到合法范围 [baseMinY, baseMaxY)
+		val worldMinY = rawMinY.coerceAtLeast(baseMinY)
+		val worldMaxY = rawMaxY.coerceAtMost(baseMaxY)
+		val worldHeight = worldMaxY - worldMinY
 		if (worldHeight <= 0) {
 			return null
 		}

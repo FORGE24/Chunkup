@@ -283,4 +283,86 @@ object JniBridge : EngineBridge {
 		sectionZ: Int,
 		blockStates: ByteArray,
 	): Any?
+
+	// =========================================================================
+	// ChunkRuntime JNI 绑定(设计 §8-12,CPU/GPU 异构运行时壳)
+	// =========================================================================
+
+	fun runtimeCreate(): Boolean {
+		if (!loaded) return false
+		return nativeRuntimeCreate()
+	}
+
+	fun runtimeShutdown() {
+		if (!loaded) return
+		nativeRuntimeShutdown()
+	}
+
+	fun runtimeRegisterArchived(dim: Int, x: Int, z: Int): Boolean {
+		if (!loaded) return false
+		return nativeRuntimeRegisterArchived(dim, x, z)
+	}
+
+	fun runtimeBeginCpuLoad(dim: Int, x: Int, z: Int): Boolean {
+		if (!loaded) return false
+		return nativeRuntimeBeginCpuLoad(dim, x, z)
+	}
+
+	fun runtimeFinishCpuLoad(dim: Int, x: Int, z: Int, payload: ByteArray): Boolean {
+		if (!loaded) return false
+		return nativeRuntimeFinishCpuLoad(dim, x, z, payload)
+	}
+
+	fun runtimeBeginGpuStage(dim: Int, x: Int, z: Int): Boolean {
+		if (!loaded) return false
+		return nativeRuntimeBeginGpuStage(dim, x, z)
+	}
+
+	fun runtimeFinishGpuStage(dim: Int, x: Int, z: Int, gpuId: Long, size: Int): Boolean {
+		if (!loaded) return false
+		return nativeRuntimeFinishGpuStage(dim, x, z, gpuId, size)
+	}
+
+	/** chunk 数据所在地:0=Absent, 1=Cpu, 2=Gpu */
+	fun runtimeChunkDataLocation(dim: Int, x: Int, z: Int): Int {
+		if (!loaded) return 0
+		return nativeRuntimeChunkDataLocation(dim, x, z)
+	}
+
+	/** runtime 统计:[slot_count, cpu_resident_bytes, gpu_resident_bytes],runtime 未创建返回 null */
+	fun runtimeStats(): LongArray? {
+		if (!loaded) return null
+		return try {
+			nativeRuntimeStats()
+		} catch (e: UnsatisfiedLinkError) {
+			null
+		}
+	}
+
+	@JvmStatic
+	private external fun nativeRuntimeCreate(): Boolean
+
+	@JvmStatic
+	private external fun nativeRuntimeShutdown()
+
+	@JvmStatic
+	private external fun nativeRuntimeRegisterArchived(dim: Int, x: Int, z: Int): Boolean
+
+	@JvmStatic
+	private external fun nativeRuntimeBeginCpuLoad(dim: Int, x: Int, z: Int): Boolean
+
+	@JvmStatic
+	private external fun nativeRuntimeFinishCpuLoad(dim: Int, x: Int, z: Int, payload: ByteArray): Boolean
+
+	@JvmStatic
+	private external fun nativeRuntimeBeginGpuStage(dim: Int, x: Int, z: Int): Boolean
+
+	@JvmStatic
+	private external fun nativeRuntimeFinishGpuStage(dim: Int, x: Int, z: Int, gpuId: Long, size: Int): Boolean
+
+	@JvmStatic
+	private external fun nativeRuntimeChunkDataLocation(dim: Int, x: Int, z: Int): Int
+
+	@JvmStatic
+	private external fun nativeRuntimeStats(): LongArray?
 }
