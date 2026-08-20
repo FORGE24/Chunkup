@@ -118,6 +118,14 @@ object ChunkSurfaceGeneration {
 			return false
 		}
 
+		// 完整 vanilla SurfaceRule 引擎优先；失败返回 false 让 vanilla buildSurface 兜底
+		if (ChunkupConfig.gpuSurfaceFull) {
+			if (ChunkSurfaceRulesGeneration.tryApply(level, chunk, engine)) {
+				return true
+			}
+			return false
+		}
+
 		val minY = level.minBuildHeight
 		val height = level.height
 		val density = ChunkDensityCache.take(chunk.pos.x, chunk.pos.z, minY, height)

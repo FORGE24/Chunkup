@@ -179,6 +179,20 @@ object JniBridge : EngineBridge {
 		return nativeGenerateSurfaceThin(chunkX, chunkZ, minY, height, worldSeed, density, biomeKind)
 	}
 
+	override fun generateSurfaceFull(
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		blocks: ByteArray,
+		heightmap: IntArray,
+		biomeQuart: ByteArray,
+	): ByteArray? {
+		if (!loaded) return null
+		return nativeGenerateSurfaceFull(chunkX, chunkZ, minY, height, worldSeed, blocks, heightmap, biomeQuart)
+	}
+
 	override fun onSectionBuild(
 		sectionX: Int,
 		sectionY: Int,
@@ -274,6 +288,18 @@ object JniBridge : EngineBridge {
 		worldSeed: Long,
 		density: FloatArray,
 		biomeKind: ByteArray,
+	): ByteArray?
+
+	@JvmStatic
+	private external fun nativeGenerateSurfaceFull(
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		blocks: ByteArray,
+		heightmap: IntArray,
+		biomeQuart: ByteArray,
 	): ByteArray?
 
 	@JvmStatic

@@ -83,6 +83,11 @@ object ChunkupConfig {
 		get() = gpuWorldGen ||
 			(!instantLoad && System.getProperty("chunkup.gpuSurfaceBuild", "false").toBoolean())
 
+	/** 完整 vanilla SurfaceRule 引擎（native C），默认随 gpuSurfaceBuild 开启，失败回退 vanilla。 */
+	val gpuSurfaceFull: Boolean
+		get() = gpuSurfaceBuild &&
+			System.getProperty("chunkup.gpuSurfaceFull", "true").toBoolean()
+
 	/** CUDA pinned host 缓冲（减少 D→H 拷贝延迟），默认 true。 */
 	val gpuPinnedHost: Boolean
 		get() = System.getProperty("chunkup.gpuPinnedHost", "true").toBoolean()

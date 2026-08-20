@@ -20,6 +20,12 @@ fn main() {
     println!("cargo:rerun-if-changed={}", common.join("chunkup_batch_density_host.c").display());
     println!("cargo:rerun-if-changed={}", common.join("chunkup_noise_state.h").display());
     println!("cargo:rerun-if-changed=../../scripts/extract-overworld-router.py");
+    println!("cargo:rerun-if-changed={}", common.join("chunkup_surface_rules.h").display());
+    println!("cargo:rerun-if-changed={}", common.join("chunkup_surface_rules_host.c").display());
+    println!("cargo:rerun-if-changed={}", common.join("chunkup_xoroshiro.h").display());
+    println!("cargo:rerun-if-changed={}", common.join("chunkup_perlin.h").display());
+    println!("cargo:rerun-if-changed={}", common.join("chunkup_wg_eval.h").display());
+    println!("cargo:rerun-if-changed={}", common.join("chunkup_improved_noise.h").display());
 
     let mut build = cc::Build::new();
     build
@@ -27,6 +33,7 @@ fn main() {
         .file(common.join("chunkup_batch_host.c"))
         .file(common.join("chunkup_batch_density_host.c"))
         .file(common.join("chunkup_noise_state.c"))
+        .file(common.join("chunkup_surface_rules_host.c"))
         .include(&common)
         .warnings(false);
 

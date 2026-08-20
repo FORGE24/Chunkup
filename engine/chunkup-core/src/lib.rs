@@ -22,7 +22,25 @@ use kernel::workspace::KernelWorkspace;
 
 static ENGINE: Mutex<Option<EngineContext>> = Mutex::new(None);
 
+/// surface rule 引擎（native chunkup_surface_rules_host.c）世界级状态串行锁。
+static SR_WORLD_LOCK: Mutex<()> = Mutex::new(());
+
 const DEFAULT_WORLD_SEED: u32 = 0x10F0_0001;
+
+/* ---- native surface rule 引擎 FFI（chunkup_surface_rules_host.c） ---- */
+
+extern "C" {
+    fn chunkup_sr_host_ensure_world(world_seed: u64) -> i32;
+    fn chunkup_sr_host_build(
+        chunk_x: i32,
+        chunk_z: i32,
+        min_y: i32,
+        height: i32,
+        blocks: *mut u16,
+        heightmap: *const i32,
+        biome_quart: *const u8,
+    ) -> i32;
+}
 
 pub fn initialize() -> bool {
     let ctx = EngineContext::bootstrap();
@@ -239,6 +257,63 @@ pub fn generate_surface_thin(
     );
 
     Some(workspace.surface_layers)
+}
+
+/// 完整 buildSurface（vanilla overworld SurfaceRule 树）：
+/// [blocks] 为噪声阶段方块（SR 块 id，列 major `(x*16+z)*height + (y-min_y)`，in/out
+/// 原位写回规则命中块），[heightmap] 为 WORLD_SURFACE_WG（`x + z*16`，最高非空气 y），
+/// [biome_quart] 为 4×4×(height/4) quart biome 网格（`(qx*4+qz)*qy_cnt + qy`）。
+/// 返回 false 表示参数非法或世界初始化失败（blocks 未被修改）。
+pub fn generate_surface_full(
+    chunk_x: i32,
+    chunk_z: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+    blocks: &mut [u16],
+    heightmap: &[i32],
+    biome_quart: &[u8],
+) -> bool {
+    if height <= 0 || (height & 3) != 0 || (min_y & 3) != 0 {
+        return false;
+    }
+    let cells = 256usize * height as usize;
+    if blocks.len() != cells || heightmap.len() != 256 {
+        return false;
+    }
+    let qy_cnt = (height / 4) as usize;
+    if biome_quart.len() != 16 * qy_cnt {
+        return false;
+    }
+
+    let Ok(_guard) = SR_WORLD_LOCK.lock() else {
+        return false;
+    };
+    if unsafe { chunkup_sr_host_ensure_world(world_seed as u64) } == 0 {
+        return false;
+    }
+    let ok = unsafe {
+        chunkup_sr_host_build(
+            chunk_x,
+            chunk_z,
+            min_y,
+            height,
+            blocks.as_mut_ptr(),
+            heightmap.as_ptr(),
+            biome_quart.as_ptr(),
+        )
+    };
+    if ok == 0 {
+        return false;
+    }
+
+    log::debug!(
+        "chunkup surface full chunk=[{}, {}]",
+        chunk_x,
+        chunk_z
+    );
+
+    true
 }
 
 pub fn process_chunk_load(

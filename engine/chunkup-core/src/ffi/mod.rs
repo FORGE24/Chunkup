@@ -6,7 +6,7 @@ use jni::sys::{jboolean, jbyte, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 use crate::section::{self, SectionMeshResult};
-use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, generate_chunk_density_batch, generate_surface_thin, initialize, is_available, process_chunk_load, process_chunk_load_batch, shutdown};
+use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density, generate_chunk_density_batch, generate_surface_full, generate_surface_thin, initialize, is_available, process_chunk_load, process_chunk_load_batch, shutdown};
 use crate::backend::set_native_library_directory;
 
 mod runtime;
@@ -288,6 +288,57 @@ pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGenerate
     };
     let layers_i8: Vec<i8> = layers.iter().map(|b| *b as i8).collect();
     if env.set_byte_array_region(&array, 0, &layers_i8).is_err() {
+        return std::ptr::null_mut();
+    }
+    array.into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeGenerateSurfaceFull(
+    mut env: JNIEnv,
+    _class: JClass,
+    chunk_x: i32,
+    chunk_z: i32,
+    min_y: i32,
+    height: i32,
+    world_seed: i64,
+    blocks: jni::objects::JByteArray,
+    heightmap: jni::objects::JIntArray,
+    biome_quart: jni::objects::JByteArray,
+) -> jni::sys::jbyteArray {
+    let blocks_u8 = match read_byte_array(&mut env, &blocks) {
+        Ok(data) => data,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let heightmap_vec = match read_int_array(&mut env, &heightmap) {
+        Ok(data) => data,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let biome_vec = match read_byte_array(&mut env, &biome_quart) {
+        Ok(data) => data,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    // u8 → u16（SR 块 id ≤ 29，无损）
+    let mut blocks_u16: Vec<u16> = blocks_u8.iter().map(|b| *b as u16).collect();
+    if !generate_surface_full(
+        chunk_x,
+        chunk_z,
+        min_y,
+        height,
+        world_seed,
+        &mut blocks_u16,
+        &heightmap_vec,
+        &biome_vec,
+    ) {
+        return std::ptr::null_mut();
+    }
+
+    let Ok(array) = env.new_byte_array(blocks_u16.len() as i32) else {
+        return std::ptr::null_mut();
+    };
+    let blocks_i8: Vec<i8> = blocks_u16.iter().map(|b| *b as i8).collect();
+    if env.set_byte_array_region(&array, 0, &blocks_i8).is_err() {
         return std::ptr::null_mut();
     }
     array.into_raw()

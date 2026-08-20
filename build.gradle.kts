@@ -55,14 +55,18 @@ loom {
 			vmArg("-Djava.library.path=$nativeDir")
 			vmArg("-Dchunkup.native.dir=$nativeDir")
 			// Phase 1 client baseline + GPU world gen (CUDA→OpenCL→CPU)
+			// gpuWorldGen=true: GPU 密度生成 (wg_compare 已验证 EXACT)，vanilla surface 递归保留
+			// gpuSurfaceBuild=false: 关闭 GPU 薄层，surface 走 vanilla 100% 准确
 			vmArg("-Dchunkup.gpuWorldGen=true")
+			vmArg("-Dchunkup.gpuSurfaceBuild=false")
 			vmArg("-Dchunkup.gpuDensityBatch.size=${propOrDefault("chunkupDensityBatchSize", "32")}")
 			vmArg("-Dchunkup.gpuDensityBatch.coalesceMs=${propOrDefault("chunkupDensityCoalesceMs", "0")}")
 			vmArg("-Dchunkup.gpuDensityBatch.maxWaitMs=${propOrDefault("chunkupDensityMaxWaitMs", "8")}")
 			vmArg("-Dchunkup.gpuDensityBatch.minFlush=${propOrDefault("chunkupDensityMinFlush", "1")}")
 			vmArg("-Dchunkup.forceGpu=false")
-			vmArg("-Dchunkup.f3Debug=true")
-			vmArg("-DRUST_LOG=warn,chunkup_core=info")
+		vmArg("-Dchunkup.gpuSections=false") // 强制关闭 Rust section fast-path（实验性，settings.json 默认 true 会触发不渲染）
+		vmArg("-Dchunkup.f3Debug=true")
+		vmArg("-DRUST_LOG=warn,chunkup_core=info")
 			// CLI: .\gradlew.bat runClient -PchunkupDensityMinFlush=16 -PchunkupDensityCoalesceMs=30
 		}
 	}

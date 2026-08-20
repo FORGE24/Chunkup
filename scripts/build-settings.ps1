@@ -72,6 +72,26 @@ function Find-QtKits {
 function Resolve-MingwCompiler {
     param([string]$KitPath)
 
+    # llvm-mingw 构建的 Qt kit 是 libc++ ABI：签名含 std:: 类型的 Qt API
+    # （如 QDir::mkpath 的 std::optional 参数）在 gcc/libstdc++ 下符号修饰不同，
+    # 链接期必炸 undefined reference。必须配 llvm-mingw 工具链。
+    if ($KitPath -match "llvm-mingw") {
+        $llvmCandidates = @()
+        if ($env:LLVM_MINGW_BIN) { $llvmCandidates += $env:LLVM_MINGW_BIN }
+        $llvmCandidates += @(
+            "D:\Qt\Tools\llvm-mingw1706_64\bin",
+            "D:\Qt\Tools\llvm-mingw*_64\bin"
+        )
+        foreach ($cand in $llvmCandidates) {
+            foreach ($bin in @(Resolve-Path $cand -ErrorAction SilentlyContinue)) {
+                if (Test-Path (Join-Path $bin "clang++.exe")) {
+                    return [string]$bin
+                }
+            }
+        }
+        throw "llvm-mingw Qt kit at '$KitPath' requires the llvm-mingw toolchain (clang++). Install via Qt Maintenance Tool (Developer and Designer Tools > LLVM-MinGW) or set LLVM_MINGW_BIN."
+    }
+
     $candidates = @(
         "D:\Qt\Tools\mingw1310_64\bin",
         "D:\Qt\Tools\llvm-mingw1706_64\bin",
@@ -187,15 +207,54 @@ if ($selectedKit.Toolchain -eq "MSVC") {
     $DllPath = Join-Path $BuildDir "$Configuration\chunkup_settings.dll"
 } else {
     $mingwBin = Resolve-MingwCompiler -KitPath $QtRoot
-    $env:PATH = "$mingwBin;$QtRoot\bin;$env:PATH"
 
-    Write-Host "Chunkup settings: configuring (MinGW, compiler at $mingwBin)"
-    cmake -S $SourceDir -B $BuildDir `
-        -G "MinGW Makefiles" `
-        -DCMAKE_PREFIX_PATH="$QtRoot" `
-        -DQT_ROOT="$QtRoot" `
-        -DCMAKE_BUILD_TYPE=$Configuration `
-        -DJAVA_HOME="$env:JAVA_HOME"
+    # llvm-mingw 工具链不带 make：借 gcc 工具链的 mingw32-make（纯构建工具，
+    # 与编译器 ABI 无关），并显式指定 clang 防止 PATH 里 gcc 的 g++ 被误选。
+    $makeBin = $mingwBin
+    $isLlvmMingw = $mingwBin -match "llvm-mingw"
+    if (-not (Test-Path (Join-Path $mingwBin "mingw32-make.exe"))) {
+        foreach ($bin in @("D:\Qt\Tools\mingw1310_64\bin", "D:\mingw64\bin")) {
+            if (Test-Path (Join-Path $bin "mingw32-make.exe")) {
+                $makeBin = $bin
+                break
+            }
+        }
+        if ($makeBin -eq $mingwBin) {
+            throw "mingw32-make.exe not found next to '$mingwBin' nor in D:\Qt\Tools\mingw1310_64\bin / D:\mingw64\bin."
+        }
+    }
+
+    # 编译器切换时 CMake 缓存必须作废（缓存锁定首次探测的编译器路径）
+    $cacheFile = Join-Path $BuildDir "CMakeCache.txt"
+    if (Test-Path $cacheFile) {
+        $cachedLine = Select-String -LiteralPath $cacheFile -Pattern "^CMAKE_CXX_COMPILER:FILEPATH=(.+)$" | Select-Object -First 1
+        $cachedCompiler = if ($cachedLine) { $cachedLine.Matches[0].Groups[1].Value } else { "" }
+        if ($cachedCompiler -and -not $cachedCompiler.StartsWith($mingwBin, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Write-Host "Chunkup settings: compiler changed ('$cachedCompiler' -> '$mingwBin'), cleaning $BuildDir" -ForegroundColor Yellow
+            Remove-Item -Recurse -Force $BuildDir
+        }
+    }
+
+    $env:PATH = "$mingwBin;$makeBin;$QtRoot\bin;$env:PATH"
+
+    $configureArgs = @(
+        "-S", $SourceDir,
+        "-B", $BuildDir,
+        "-G", "MinGW Makefiles",
+        "-DCMAKE_PREFIX_PATH=$QtRoot",
+        "-DQT_ROOT=$QtRoot",
+        "-DCMAKE_BUILD_TYPE=$Configuration",
+        "-DJAVA_HOME=$env:JAVA_HOME"
+    )
+    if ($isLlvmMingw) {
+        $configureArgs += @(
+            "-DCMAKE_C_COMPILER=clang",
+            "-DCMAKE_CXX_COMPILER=clang++"
+        )
+    }
+
+    Write-Host "Chunkup settings: configuring (MinGW, compiler at $mingwBin, make at $makeBin)"
+    & cmake @configureArgs
 
     Write-Host "Chunkup settings: building ($Configuration)"
     cmake --build $BuildDir
@@ -220,11 +279,18 @@ if (-not (Test-Path $WinDeployQt)) {
 Write-Host "Deployed Qt runtime to $NativeOut" -ForegroundColor Green
 
 if ($selectedKit.Toolchain -eq "MinGW") {
-    $compilerDlls = @(
-        (Join-Path $mingwBin "libgcc_s_seh-1.dll"),
-        (Join-Path $mingwBin "libstdc++-6.dll"),
-        (Join-Path $mingwBin "libwinpthread-1.dll")
-    )
+    $compilerDlls = if ($mingwBin -match "llvm-mingw") {
+        @(
+            (Join-Path $mingwBin "libc++.dll"),
+            (Join-Path $mingwBin "libunwind.dll")
+        )
+    } else {
+        @(
+            (Join-Path $mingwBin "libgcc_s_seh-1.dll"),
+            (Join-Path $mingwBin "libstdc++-6.dll"),
+            (Join-Path $mingwBin "libwinpthread-1.dll")
+        )
+    }
     foreach ($dll in $compilerDlls) {
         if (Test-Path $dll) {
             Copy-Item $dll $NativeOut -Force

@@ -84,6 +84,28 @@ interface EngineBridge {
 		biomeKind: ByteArray,
 	): ByteArray? = null
 
+	/**
+	 * 完整 buildSurface（vanilla overworld SurfaceRule 树，native C 引擎）。
+	 *
+	 * 输入：
+	 * - [blocks]：噪声阶段方块（SR 块 ID），列 major `(x * 16 + z) * height + (y - minY)`
+	 * - [heightmap]：WORLD_SURFACE_WG，`x + z * 16`（最高非空气 y）
+	 * - [biomeQuart]：4×4×(height/4) quart biome 网格，`((qx * 4 + qz) * qyCnt + qy)`，
+	 *   值为 ChunkupSrBiome ordinal（见 ChunkSurfaceRulesGeneration 映射）
+	 *
+	 * 输出：同布局的规则求值结果（u8），失败返回 null。
+	 */
+	fun generateSurfaceFull(
+		chunkX: Int,
+		chunkZ: Int,
+		minY: Int,
+		height: Int,
+		worldSeed: Long,
+		blocks: ByteArray,
+		heightmap: IntArray,
+		biomeQuart: ByteArray,
+	): ByteArray? = null
+
 	/** Section 网格构建；无可用结果时返回 null。 */
 	fun onSectionBuild(sectionX: Int, sectionY: Int, sectionZ: Int, blockStates: ByteArray): cn.sanrolnet.chunkup.render.SectionBuildPayload? = null
 
