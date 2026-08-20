@@ -37,6 +37,8 @@ bin/
 
 run/
 mcsrc/
+logs/
+/screen*.png
 
 # rust / native
 
