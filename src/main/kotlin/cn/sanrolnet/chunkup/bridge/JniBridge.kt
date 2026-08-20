@@ -391,4 +391,71 @@ object JniBridge : EngineBridge {
 
 	@JvmStatic
 	private external fun nativeRuntimeStats(): LongArray?
+
+	fun interopAvailable(): Boolean = try { nativeInteropIsAvailable() } catch (e: UnsatisfiedLinkError) { false }
+
+	fun interopUploadBlockStates(blockStates: ByteArray): Long = nativeInteropUploadBlockStates(blockStates)
+
+	fun interopFreeBlockStates(devicePtr: Long) { if (devicePtr != 0L) nativeInteropFreeBlockStates(devicePtr) }
+
+	fun interopMeshCountOnlyHost(blockStates: ByteArray, sectionCount: Int): IntArray? =
+		nativeInteropMeshCountOnlyHost(blockStates, sectionCount)
+
+	fun interopMeshCountOnlyDevice(devicePtr: Long, sectionCount: Int): IntArray? =
+		nativeInteropMeshCountOnlyDevice(devicePtr, sectionCount)
+
+	fun interopGlRegister(vboId: Int): Boolean = nativeInteropGlRegister(vboId)
+
+	fun interopGlUnregister(vboId: Int) = nativeInteropGlUnregister(vboId)
+
+	fun interopMeshToVboHost(
+		blockStates: ByteArray,
+		sectionCount: Int,
+		vertexStride: Int,
+		vboId: Int,
+		vertexOffsetTable: IntArray,
+		drawCommandBuffer: IntArray
+	): Int = nativeInteropMeshToVboHost(blockStates, sectionCount, vertexStride, vboId, vertexOffsetTable, drawCommandBuffer)
+
+	fun interopMeshToVboDevice(
+		devicePtr: Long,
+		sectionCount: Int,
+		vertexStride: Int,
+		vboId: Int,
+		vertexOffsetTable: IntArray,
+		drawCommandBuffer: IntArray
+	): Int = nativeInteropMeshToVboDevice(devicePtr, sectionCount, vertexStride, vboId, vertexOffsetTable, drawCommandBuffer)
+
+	@JvmStatic
+	private external fun nativeInteropIsAvailable(): Boolean
+
+	@JvmStatic
+	private external fun nativeInteropUploadBlockStates(blockStates: ByteArray): Long
+
+	@JvmStatic
+	private external fun nativeInteropFreeBlockStates(devicePtr: Long)
+
+	@JvmStatic
+	private external fun nativeInteropMeshCountOnlyHost(blockStates: ByteArray, sectionCount: Int): IntArray?
+
+	@JvmStatic
+	private external fun nativeInteropMeshCountOnlyDevice(devicePtr: Long, sectionCount: Int): IntArray?
+
+	@JvmStatic
+	private external fun nativeInteropGlRegister(vboId: Int): Boolean
+
+	@JvmStatic
+	private external fun nativeInteropGlUnregister(vboId: Int)
+
+	@JvmStatic
+	private external fun nativeInteropMeshToVboHost(
+		blockStates: ByteArray, sectionCount: Int, vertexStride: Int, vboId: Int,
+		vertexOffsetTable: IntArray, drawCommandBuffer: IntArray
+	): Int
+
+	@JvmStatic
+	private external fun nativeInteropMeshToVboDevice(
+		devicePtr: Long, sectionCount: Int, vertexStride: Int, vboId: Int,
+		vertexOffsetTable: IntArray, drawCommandBuffer: IntArray
+	): Int
 }

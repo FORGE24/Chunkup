@@ -227,7 +227,16 @@ CHUNKUP_FN float chunkup_router_initial_density(
     return density;
 }
 
-/** Aquifer 近似：0=空气, 1=水, 2=熔岩 */
+/**
+ * Aquifer 流体判定：0=空气, 1=水, 2=熔岩。
+ *
+ * 对齐 vanilla NoiseChunk/ Aquifer 核心规则（近似，噪声源为 LCG 表近似）：
+ * - 每个 aquifer 噪声（barrier/floodedness/spread/lava）使用独立噪声表，
+ *   区别于旧的"单表 + 偏移"近似。
+ * - barrier 是"不可渗透层"判定（barrier > 阈值 → 该位置为 barrier 固体，
+ *   阻断上下流体连通）；floodedness 决定空腔是否被水填；
+ *   spread 使局部水位在 sea_level ±14 内浮动；lava 在 y < cutoff 且 lava 噪声高时取代水。
+ */
 CHUNKUP_FN uint8_t chunkup_router_aquifer_fluid(
     const ChunkupNoiseBundle* bundle,
     float wx,
@@ -239,41 +248,56 @@ CHUNKUP_FN uint8_t chunkup_router_aquifer_fluid(
         return 0u;
     }
 
-    const ChunkupNoiseTables* aq = chunkup_noise_slot(bundle, CHUNKUP_NOISE_SLOT_AQUIFER);
+    /* 独立噪声表（分隔偏移仅作种子区分，每个 slot 独立派生） */
     const float barrier = chunkup_improved_noise3(
-        aq,
+        chunkup_noise_slot(bundle, CHUNKUP_NOISE_SLOT_AQ_BARRIER),
         wx * CHUNKUP_AQUIFER_BARRIER_XZ,
         wy * CHUNKUP_AQUIFER_BARRIER_Y,
         wz * CHUNKUP_AQUIFER_BARRIER_XZ
     );
     const float flooded = chunkup_improved_noise3(
-        aq,
-        wx * CHUNKUP_AQUIFER_FLOODED_XZ + 31.0f,
+        chunkup_noise_slot(bundle, CHUNKUP_NOISE_SLOT_AQ_FLOODED),
+        wx * CHUNKUP_AQUIFER_FLOODED_XZ,
         wy * CHUNKUP_AQUIFER_FLOODED_Y,
-        wz * CHUNKUP_AQUIFER_FLOODED_XZ + 31.0f
+        wz * CHUNKUP_AQUIFER_FLOODED_XZ
     );
     const float spread = chunkup_improved_noise3(
-        aq,
-        wx * CHUNKUP_AQUIFER_SPREAD_XZ + 67.0f,
+        chunkup_noise_slot(bundle, CHUNKUP_NOISE_SLOT_AQ_SPREAD),
+        wx * CHUNKUP_AQUIFER_SPREAD_XZ,
         wy * CHUNKUP_AQUIFER_SPREAD_Y,
-        wz * CHUNKUP_AQUIFER_SPREAD_XZ + 67.0f
+        wz * CHUNKUP_AQUIFER_SPREAD_XZ
     );
     const float lava = chunkup_improved_noise3(
-        aq,
-        wx * CHUNKUP_AQUIFER_LAVA_XZ + 103.0f,
+        chunkup_noise_slot(bundle, CHUNKUP_NOISE_SLOT_AQ_LAVA),
+        wx * CHUNKUP_AQUIFER_LAVA_XZ,
         wy * CHUNKUP_AQUIFER_LAVA_Y,
-        wz * CHUNKUP_AQUIFER_LAVA_XZ + 103.0f
+        wz * CHUNKUP_AQUIFER_LAVA_XZ
     );
 
+    /* 局部水位：sea_level ± spread*14（对齐 vanilla fluid_level 浮动范围） */
     const float fluid_level = (float)CHUNKUP_ROUTER_SEA_LEVEL + spread * 14.0f;
-    const float status = flooded - barrier;
 
-    if (wy > fluid_level || status <= 0.05f) {
+    /* 高于局部水位 → 空气 */
+    if (wy > fluid_level) {
         return 0u;
     }
+
+    /* 深部熔岩：lava_cutoff 之下且 lava 噪声显著 → 熔岩 */
     if (wy < (float)CHUNKUP_AQUIFER_LAVA_CUTOFF_Y && lava > 0.35f) {
         return 2u;
     }
+
+    /* barrier 不可渗透层：barrier 噪声显著为正 → 该位置不填充流体 */
+    if (barrier > 0.4f) {
+        return 0u;
+    }
+
+    /* floodedness 过低 → 洞穴/空腔不填充水 */
+    if (flooded < -0.2f) {
+        return 0u;
+    }
+
+    /* 否则水 */
     return 1u;
 }
 

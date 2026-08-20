@@ -1,0 +1,86 @@
+cmake_minimum_required(VERSION 3.18)
+project(chunkup_cuda_interop LANGUAGES C CXX CUDA)
+
+set(CHUNKUP_COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../common)
+
+if(NOT DEFINED CMAKE_CUDA_COMPILER)
+    find_package(CUDAToolkit QUIET)
+    if(CUDAToolkit_FOUND)
+        set(CMAKE_CUDA_COMPILER "${CUDAToolkit_BIN_DIR}/nvcc")
+        message(STATUS "[interop] CUDA found via CUDAToolkit: ${CMAKE_CUDA_COMPILER}")
+    else()
+        foreach(cuda_path /usr/local/cuda /opt/cuda)
+            if(EXISTS "${cuda_path}/bin/nvcc")
+                set(CMAKE_CUDA_COMPILER "${cuda_path}/bin/nvcc")
+                set(CUDAToolkit_ROOT "${cuda_path}")
+                message(STATUS "[interop] CUDA found at: ${cuda_path}")
+                break()
+            endif()
+        endforeach()
+    endif()
+endif()
+
+if(NOT CMAKE_CUDA_COMPILER)
+    message(FATAL_ERROR "[interop] CUDA compiler (nvcc) not found. "
+        "Install cuda-toolkit or set -DCMAKE_CUDA_COMPILER=/path/to/nvcc")
+endif()
+
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+endif()
+
+set(CMAKE_CUDA_ARCHITECTURES "61;75;86;89" CACHE STRING "CUDA architectures to target")
+if(NOT MSVC)
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler -fPIC")
+endif()
+
+find_package(OpenGL REQUIRED)
+
+add_library(chunkup_cuda_interop SHARED
+    src/chunkup_gpu_direct_render.cu
+)
+
+target_include_directories(chunkup_cuda_interop PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_include_directories(chunkup_cuda_interop PRIVATE
+    ${CHUNKUP_COMMON_DIR}
+)
+
+target_compile_definitions(chunkup_cuda_interop PRIVATE CHUNKUP_EXPORT_BUILD)
+
+if(MSVC)
+    target_compile_options(chunkup_cuda_interop PRIVATE /utf-8)
+endif()
+
+set_target_properties(chunkup_cuda_interop PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    POSITION_INDEPENDENT_CODE ON
+)
+
+if(CUDAToolkit_FOUND)
+    target_link_libraries(chunkup_cuda_interop PRIVATE CUDA::cudart)
+else()
+    find_library(CUDA_RT_LIB cudart
+        PATHS /usr/local/cuda/lib64 /opt/cuda/lib64 /usr/lib64 /usr/lib
+        NO_DEFAULT_PATH
+    )
+    if(CUDA_RT_LIB)
+        target_link_libraries(chunkup_cuda_interop PRIVATE ${CUDA_RT_LIB})
+    else()
+        message(FATAL_ERROR "[interop] CUDA runtime library (libcudart) not found.")
+    endif()
+endif()
+
+target_link_libraries(chunkup_cuda_interop PRIVATE OpenGL::GL)
+
+include(GNUInstallDirs)
+install(TARGETS chunkup_cuda_interop
+    RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}/chunkup
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/chunkup
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/chunkup
+)
+
+message(STATUS "[interop] CUDA-GL interop library target ready (libchunkup_cuda_interop.${CMAKE_SHARED_LIBRARY_SUFFIX})")

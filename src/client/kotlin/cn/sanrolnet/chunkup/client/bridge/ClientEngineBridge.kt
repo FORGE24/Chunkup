@@ -44,4 +44,30 @@ object ClientEngineBridge : EngineBridge by JniBridge {
 
 	@JvmStatic
 	private external fun nativeReleaseSectionBuffer(buffer: ByteBuffer)
+
+	fun interopAvailable(): Boolean = JniBridge.interopAvailable()
+
+	fun interopUploadBlockStates(blockStates: ByteArray): Long = JniBridge.interopUploadBlockStates(blockStates)
+
+	fun interopFreeBlockStates(devicePtr: Long) = JniBridge.interopFreeBlockStates(devicePtr)
+
+	fun interopMeshCountOnlyHost(blockStates: ByteArray, sectionCount: Int): IntArray? =
+		JniBridge.interopMeshCountOnlyHost(blockStates, sectionCount)
+
+	fun interopMeshCountOnlyDevice(devicePtr: Long, sectionCount: Int): IntArray? =
+		JniBridge.interopMeshCountOnlyDevice(devicePtr, sectionCount)
+
+	fun interopGlRegister(vboId: Int): Boolean = JniBridge.interopGlRegister(vboId)
+
+	fun interopGlUnregister(vboId: Int) = JniBridge.interopGlUnregister(vboId)
+
+	fun interopMeshToVboHost(
+		blockStates: ByteArray, sectionCount: Int, vertexStride: Int, vboId: Int,
+		vertexOffsetTable: IntArray, drawCommandBuffer: IntArray
+	): Int = JniBridge.interopMeshToVboHost(blockStates, sectionCount, vertexStride, vboId, vertexOffsetTable, drawCommandBuffer)
+
+	fun interopMeshToVboDevice(
+		devicePtr: Long, sectionCount: Int, vertexStride: Int, vboId: Int,
+		vertexOffsetTable: IntArray, drawCommandBuffer: IntArray
+	): Int = JniBridge.interopMeshToVboDevice(devicePtr, sectionCount, vertexStride, vboId, vertexOffsetTable, drawCommandBuffer)
 }
