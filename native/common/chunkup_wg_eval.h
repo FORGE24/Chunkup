@@ -529,6 +529,45 @@ CHUNKUP_FN double chunkup_wg_initial_density_direct(
     return chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_INITIAL_DENSITY_WITHOUT_JAGGEDNESS, bx, by, bz);
 }
 
+
+
+CHUNKUP_FN uint8_t chunkup_wg_aquifer_fluid(
+    ChunkupWgWorld* w,
+    int32_t bx, int32_t by, int32_t bz,
+    double density
+) {
+    if (density > 0.0) {
+        return 0u;
+    }
+
+    const double barrier = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_BARRIER, bx, by, bz);
+    const double flooded = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_FLUID_LEVEL_FLOODEDNESS, bx, by, bz);
+    const double spread  = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_FLUID_LEVEL_SPREAD, bx, by, bz);
+    const double lava    = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_LAVA, bx, by, bz);
+
+    const double fluid_level = (double)CHUNKUP_WG_SEA_LEVEL + spread * 14.0;
+    const double barrier_level = barrier * 0.5;
+    const double flooded_level = flooded;
+
+    const int barrier_blocks = (by < (int)fluid_level) && (barrier_level > 0.4);
+    if (barrier_blocks) {
+        return 0u;
+    }
+
+    if (by > (int)fluid_level) {
+        return 0u;
+    }
+
+    if (flooded_level < -0.2) {
+        return 0u;
+    }
+
+    if (by < -54 && lava > 0.35) {
+        return 2u;
+    }
+
+    return 1u;
+}
 #ifdef __cplusplus
 }
 #endif
