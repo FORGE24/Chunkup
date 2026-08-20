@@ -14,7 +14,12 @@ extern "C" {
 #define CHUNKUP_NOISE_SLOT_AQUIFER 3
 #define CHUNKUP_NOISE_SLOT_BASE3D 4
 #define CHUNKUP_NOISE_SLOT_SHIFT 5
-#define CHUNKUP_NOISE_SLOT_COUNT 6
+/* Aquifer 四个独立噪声表（对齐 vanilla fromHashOf 的 4 个 NormalNoise 实例） */
+#define CHUNKUP_NOISE_SLOT_AQ_BARRIER 6
+#define CHUNKUP_NOISE_SLOT_AQ_FLOODED 7
+#define CHUNKUP_NOISE_SLOT_AQ_SPREAD 8
+#define CHUNKUP_NOISE_SLOT_AQ_LAVA 9
+#define CHUNKUP_NOISE_SLOT_COUNT 10
 
 typedef struct ChunkupNoiseBundle {
     ChunkupNoiseTables slots[CHUNKUP_NOISE_SLOT_COUNT];
