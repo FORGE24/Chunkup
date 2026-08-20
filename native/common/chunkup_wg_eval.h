@@ -470,6 +470,65 @@ CHUNKUP_FN double chunkup_wg_initial_density(ChunkupWgChunk* c, int32_t bx, int3
     return chunkup_wg_df(c, CHUNKUP_WG_DF_INITIAL_DENSITY_WITHOUT_JAGGEDNESS, bx, by, bz);
 }
 
+/* ---------------------------------------------------------------- Direct 求值 API */
+
+/**
+ * Direct 求值：给定 (world, block_xyz) 直接递归求值 DF 树，不经
+ * FlatCache / NoiseInterpolator 预计算缓存。对应 vanilla：
+ *   DensityFunction.compute(SinglePointContext(x, y, z))
+ * marker 节点全透传，与 WgDump.java 黄金 dump 模式一致。
+ *
+ * 实现：file-scope stub ChunkupWgChunk 的 min_bx/min_bz/first_noise_*
+ * 设为 INT32_MIN，强制 flat/interp 边界检查失败 → 透传递归路径，
+ * stub.flat_vals / interp_vals 从不被访问。
+ *
+ * 适用：对拍验证、LOD 远景单点密度查询、F3 调试输出、生物群系 surface 单点。
+ * 性能：每次调用整棵子树全递归（无 memoization），比 chunk-aware 路径
+ *       慢 1-2 个数量级。批量化请用 chunkup_wg_chunk_init + chunkup_wg_df。
+ *
+ * 线程安全：file-scope static stub 非线程安全；多线程请自行构造
+ *           ChunkupWgChunk 并调用 chunkup_wg_df。
+ */
+CHUNKUP_FN double chunkup_wg_eval_direct(
+    ChunkupWgWorld* w, int32_t df_idx,
+    int32_t bx, int32_t by, int32_t bz);
+
+/** 单点 final_density（无 NoiseChunk 包装；> 0 → 实心）。 */
+CHUNKUP_FN double chunkup_wg_block_density_direct(
+    ChunkupWgWorld* w, int32_t bx, int32_t by, int32_t bz);
+
+/** 单点 initial_density_without_jaggedness（无 NoiseChunk 包装）。 */
+CHUNKUP_FN double chunkup_wg_initial_density_direct(
+    ChunkupWgWorld* w, int32_t bx, int32_t by, int32_t bz);
+
+/* --- 实现 --- */
+
+static ChunkupWgChunk chunkup_wg_direct_stub;
+
+CHUNKUP_FN double chunkup_wg_eval_direct(
+    ChunkupWgWorld* w, int32_t df_idx,
+    int32_t bx, int32_t by, int32_t bz) {
+    /* min_bx/min_bz/first_noise_* 全 INT32_MIN：任意 block 坐标减出来
+     * 都越界（k<0 或 lx>=16），flat_cache / interp marker 走 fallthrough
+     * 递归路径，stub.flat_vals / interp_vals 永不访问。 */
+    chunkup_wg_direct_stub.world = w;
+    chunkup_wg_direct_stub.min_bx = INT32_MIN;
+    chunkup_wg_direct_stub.min_bz = INT32_MIN;
+    chunkup_wg_direct_stub.first_noise_x = INT32_MIN;
+    chunkup_wg_direct_stub.first_noise_z = INT32_MIN;
+    return chunkup_wg_df(&chunkup_wg_direct_stub, df_idx, bx, by, bz);
+}
+
+CHUNKUP_FN double chunkup_wg_block_density_direct(
+    ChunkupWgWorld* w, int32_t bx, int32_t by, int32_t bz) {
+    return chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_FINAL_DENSITY, bx, by, bz);
+}
+
+CHUNKUP_FN double chunkup_wg_initial_density_direct(
+    ChunkupWgWorld* w, int32_t bx, int32_t by, int32_t bz) {
+    return chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_INITIAL_DENSITY_WITHOUT_JAGGEDNESS, bx, by, bz);
+}
+
 #ifdef __cplusplus
 }
 #endif
