@@ -1,181 +1,130 @@
-# Chunkup CI — FORGE24 Linux multi-distro build + full JAR
-# Policy:
-#   RHEL/Debian → CUDA + OpenCL (CUDA优先)
-#   Arch/Alpine  → OpenCL ONLY (强制跳过CUDA)
-name: build
+name: Build Cross-Platform Release
 
-on: [pull_request, push]
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  # ── Linux native engine + GPU backends (multi-distro matrix) ──────
-  linux-native:
-    name: "native (${{ matrix.distro }})"
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - distro: debian
-            image: debian:testing
-            cuda_expected: yes
-          - distro: ubuntu
-            image: ubuntu:24.04
-            cuda_expected: yes
-          - distro: fedora
-            image: fedora:41
-            cuda_expected: yes
-          - distro: arch
-            image: archlinux:latest
-            cuda_expected: no
-          - distro: alpine
-            image: alpine:edge
-            cuda_expected: no
-            continue-on-error: true
-
-    container:
-      image: ${{ matrix.image }}
-      options: --privileged
-
+  build-linux:
+    name: Build Linux (OpenCL)
+    runs-on: ubuntu-22.04
+    env:
+      CHUNKUP_BUILD_CONFIG: Release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - name: install deps (${{ matrix.distro }})
-        if: ${{ ! (matrix.continue-on-error) }}
-        run: bash scripts/install-deps-linux.sh
-
-      - name: install deps (${{ matrix.distro }}) [allow-fail]
-        if: ${{ matrix.continue-on-error }}
-        run: bash scripts/install-deps-linux.sh || true
-
-      - name: build native engine
-        if: ${{ ! (matrix.continue-on-error) }}
-        run: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          bash scripts/build-engine.sh
-
-      - name: build native engine [allow-fail]
-        if: ${{ matrix.continue-on-error }}
-        run: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          bash scripts/build-engine.sh || true
-
-      - name: verify artifacts
-        if: ${{ ! (matrix.continue-on-error) }}
-        run: |
-          echo "=== Rust core ==="
-          find engine/target/release -name 'libchunkup_core*' -type f
-          echo "=== GPU backends ==="
-          find build/ -name 'libchunkup_cuda*' -o -name 'libchunkup_opencl*' | sort
-          echo "=== Native output ==="
-          ls -la build/native-gpu/ 2>/dev/null || echo "(empty)"
-
-      - name: verify CUDA policy (${{ matrix.cuda_expected }})
-        if: ${{ ! (matrix.continue-on-error) }}
-        run: |
-          HAS_CUDA=$(find build/ -name 'libchunkup_cuda*' -type f | wc -l)
-          HAS_OPENCL=$(find build/ -name 'libchunkup_opencl*' -type f | wc -l)
-          echo "CUDA: $HAS_CUDA  OpenCL: $HAS_OPENCL  policy: CUDA=${{ matrix.cuda_expected }}"
-          if [[ "${{ matrix.cuda_expected }}" == "no" ]]; then
-            [[ "$HAS_CUDA" -eq 0 ]] || { echo "FAIL: CUDA must NOT build on ${{ matrix.distro }}"; exit 1; }
-            echo "PASS: CUDA correctly skipped"
-          else
-            echo "OK: CUDA=$HAS_CUDA OpenCL=$HAS_OPENCL (no GPU runner — either is fine)"
-          fi
-
-      - name: upload native libs
-        if: ${{ ! (matrix.continue-on-error) }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-${{ matrix.distro }}
-          path: |
-            engine/target/release/libchunkup_core.so
-            build/native-gpu/*.so
-            build/native/*.so
-          if-no-files-found: ignore
-
-  # ── Rust check (cargo check + clippy) ──────────────────────────────
-  rust-check:
-    name: "rust check"
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - name: install rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-      - name: install cc deps
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc
-      - name: cargo check (core)
-        run: cargo check --manifest-path engine/chunkup-core/Cargo.toml
-      - name: cargo check (cpu)
-        run: cargo check --manifest-path engine/chunkup-cpu/Cargo.toml
-      - name: cargo clippy
-        run: |
-          rustup component add clippy
-          cargo clippy --manifest-path engine/chunkup-core/Cargo.toml -- -D warnings 2>&1 | head -100
-          cargo clippy --manifest-path engine/chunkup-cpu/Cargo.toml -- -D warnings 2>&1 | head -100
-
-  # ── Full JAR (native + java) on Ubuntu ─────────────────────────────
-  full-jar:
-    name: "full JAR (ubuntu)"
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: gradle/actions/wrapper-validation@v6
-
-      - uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: install native deps
+      - name: Install Linux dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake g++ ocl-icd-opencl-dev pkg-config
-
-      - name: install rust
-        run: |
+          sudo apt-get install -y -qq cmake g++ pkg-config python3 opencl-headers ocl-icd-opencl-dev
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          source "$HOME/.cargo/env"
+          rustc --version
 
-      - name: gradle build (full native + jar)
+      - name: Build Linux native engine
         run: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          chmod +x ./gradlew
-          ./gradlew build --no-daemon -x buildSettingsNative
+          source "$HOME/.cargo/env"
+          bash scripts/build-engine.sh Release
 
-      - name: verify JAR contents
+      - name: Build Linux mod JAR
         run: |
-          echo "=== JAR size ==="
-          ls -lh build/libs/chunkup-*.jar
-          echo "=== Native libs in JAR ==="
-          jar tf build/libs/chunkup-1.0.0.jar | grep -E '\.(so|dylib)$' | sort
+          source "$HOME/.cargo/env"
+          chmod +x gradlew
+          ./gradlew :remapJar --no-daemon -Pmod_version=${{ github.ref_name }}
 
-      - uses: actions/upload-artifact@v7
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: chunkup-full-jar
-          path: build/libs/
+          name: linux-artifacts
+          path: |
+            build/remapped/*.jar
+            build/native-gpu/*.so
+            native/opencl/kernels/*.cl
+            native/opencl/kernels/*.clh
 
-  # ── Summary gate ──────────────────────────────────────────────────
-  summary:
-    name: "CI summary"
-    runs-on: ubuntu-24.04
-    needs: [linux-native, rust-check, full-jar]
-    if: always()
+  build-windows:
+    name: Build Windows (CUDA + OpenCL)
+    runs-on: windows-2022
+    env:
+      CHUNKUP_BUILD_CONFIG: Release
     steps:
-      - name: results
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
         run: |
-          echo "════════════════════════════════════"
-          echo "  linux-native:   ${{ needs.linux-native.result }}"
-          echo "  rust-check:     ${{ needs.rust-check.result }}"
-          echo "  full-jar:       ${{ needs.full-jar.result }}"
-          echo "════════════════════════════════════"
-          if [[ "${{ needs.rust-check.result }}" != "success" ]] ||
-             [[ "${{ needs.full-jar.result }}" != "success" ]]; then
-            echo "FAIL: critical job(s) failed"
-            exit 1
-          fi
-          if [[ "${{ needs.linux-native.result }}" == "failure" ]]; then
-            echo "WARN: some native jobs failed (alpine is allowed)"
-          fi
-          echo "ALL GREEN"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.exe
+          rustup-init.exe -y --default-toolchain stable
+          echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup MSVC vcvars
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build Windows native engine
+        shell: pwsh
+        run: |
+          ./scripts/build-engine.ps1 -Configuration Release -ForceCuda
+
+      - name: Build Windows mod JAR
+        run: |
+          .\gradlew.bat remapJar --no-daemon -Pmod_version=${{ github.ref_name }}
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: |
+            build/remapped/*.jar
+            build/native-gpu/*.dll
+            build/native-gpu/*.pdb
+            native/prebuilt/windows-x86_64/*.dll
+
+  merge-artifacts:
+    name: Merge & Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-artifacts
+          path: artifacts/linux
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifacts
+          path: artifacts/windows
+
+      - name: Prepare cross-platform JAR
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.ref_name }}"
+          JAR_NAME="chunkup-${VERSION}.jar"
+          
+          # Use the Linux-built JAR as base (has Linux .so + prebuilt Windows .dll)
+          mkdir -p release
+          cp artifacts/linux/*.jar release/${JAR_NAME}
+          
+          # Verify both platforms' natives are present
+          echo "=== JAR contents ==="
+          unzip -l release/${JAR_NAME} 'assets/chunkup/native/**' | head -40
+          
+          # Verify Linux .so
+          unzip -l release/${JAR_NAME} 'assets/chunkup/native/linux-x86_64/*.so'
+          # Verify Windows .dll
+          unzip -l release/${JAR_NAME} 'assets/chunkup/native/windows-x86_64/*.dll'
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.jar
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
