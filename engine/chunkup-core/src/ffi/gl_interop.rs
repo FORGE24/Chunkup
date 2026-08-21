@@ -43,7 +43,7 @@ fn library_candidates() -> Vec<PathBuf> {
         }
     }
 
-    if let Ok(cwd) = std::current_dir() { dirs.push(cwd); }
+    if let Ok(cwd) = std::env::current_dir() { dirs.push(cwd); }
 
     #[cfg(target_os = "linux")]
     dirs.extend([
