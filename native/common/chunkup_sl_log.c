@@ -1,6 +1,7 @@
 #include "chunkup_sl_log.h"
 
 #include <stdarg.h>
+#include <stddef.h>
 #include <string.h>
 
 #ifdef _WIN32

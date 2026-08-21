@@ -2,6 +2,7 @@
 #include "chunkup_kernel.h"
 #include "chunkup_noise_state.h"
 #include "chunkup_kernel_algo.h"
+#include <stddef.h>
 
 int chunkup_kernel_dispatch_density_batch(
     const ChunkupKernelJob* template_job,
