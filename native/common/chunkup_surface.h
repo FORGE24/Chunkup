@@ -14,6 +14,9 @@ extern "C" {
 
 #define CHUNKUP_SURFACE_LAYERS 4u
 
+#define CHUNKUP_SURFACE_SEA_LEVEL           63
+#define CHUNKUP_SURFACE_BEACH_TOP_ABOVE_SEA 7
+
 typedef enum ChunkupSurfaceBlockId {
     CHUNKUP_SURFACE_SKIP = 0u,
     CHUNKUP_SURFACE_GRASS = 1u,
@@ -71,7 +74,15 @@ CHUNKUP_FN void chunkup_surface_fill_layers_cpu(
                 continue;
             }
 
-            const uint8_t kind = biome_kind ? biome_kind[col] : CHUNKUP_BIOME_DEFAULT;
+            const uint8_t rawKind = biome_kind ? biome_kind[col] : CHUNKUP_BIOME_DEFAULT;
+            const int surfaceYw = min_y + ly;
+
+            uint8_t kind = rawKind;
+            if (kind == CHUNKUP_BIOME_BEACH && surfaceYw >
+                CHUNKUP_SURFACE_SEA_LEVEL + CHUNKUP_SURFACE_BEACH_TOP_ABOVE_SEA) {
+                kind = CHUNKUP_BIOME_DEFAULT;
+            }
+
             uint8_t top = CHUNKUP_SURFACE_GRASS;
             uint8_t mid = CHUNKUP_SURFACE_DIRT;
             uint8_t deep = CHUNKUP_SURFACE_DIRT;
