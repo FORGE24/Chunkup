@@ -10,6 +10,7 @@ use crate::{dispatch_chunk_stage, dispatch_section_build, generate_chunk_density
 use crate::backend::set_native_library_directory;
 
 mod runtime;
+mod gl_interop;
 
 static SECTION_BUFFERS: LazyLock<Mutex<HashMap<isize, Vec<u8>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
