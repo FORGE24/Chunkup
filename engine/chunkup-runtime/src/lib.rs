@@ -30,6 +30,7 @@
 #![warn(missing_docs)]
 
 pub mod coordinator;
+pub mod dual_coordinator;
 pub mod gpu_handle;
 pub mod runtime;
 pub mod scheduler;
@@ -37,6 +38,7 @@ pub mod slot;
 pub mod state_machine;
 
 pub use coordinator::{CpuTask, DataLocation, GpuTask, LoadCoordinator, SectionLoadPlan};
+pub use dual_coordinator::{BackendLane, CoordinatorStats, DispatchResult, DispatchStatus, DispatchTask, DualBackendCoordinator, TaskStage};
 pub use gpu_handle::GpuBufferHandle;
 pub use runtime::ChunkRuntime;
 pub use scheduler::{EvictionCandidate, EvictionContext, ResidencyScheduler};
