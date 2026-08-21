@@ -115,10 +115,6 @@ impl LaneQueue {
         self.tasks.len()
     }
 
-    fn is_empty(&self) -> bool {
-        self.tasks.is_empty()
-    }
-
     fn push(&mut self, task: DispatchTask) {
         let score = task.priority_score();
         let mut idx = self.tasks.len();
@@ -133,10 +129,6 @@ impl LaneQueue {
 
     fn pop(&mut self) -> Option<DispatchTask> {
         self.tasks.pop_front()
-    }
-
-    fn peek_score(&self) -> u32 {
-        self.tasks.front().map(|t| t.priority_score()).unwrap_or(0)
     }
 }
 
