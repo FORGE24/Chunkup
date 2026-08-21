@@ -1,10 +1,5 @@
 #pragma once
 
-/**
- * GPU buildSurface 薄层：按列写回顶层 1–4 格 surface block ID。
- * 布局：surface_layers[(lz * 16 + lx) * CHUNKUP_SURFACE_LAYERS + layer]
- */
-
 #include "chunkup_compat.h"
 #include "chunkup_kernel.h"
 
@@ -27,7 +22,6 @@ typedef enum ChunkupSurfaceBlockId {
     CHUNKUP_SURFACE_GRAVEL = 6u,
 } ChunkupSurfaceBlockId;
 
-/** biome 粗分类（Kotlin 侧映射）。 */
 typedef enum ChunkupSurfaceBiomeKind {
     CHUNKUP_BIOME_DEFAULT = 0u,
     CHUNKUP_BIOME_DESERT = 1u,
@@ -108,7 +102,6 @@ CHUNKUP_FN void chunkup_surface_fill_layers_cpu(
                     break;
             }
 
-            (void)min_y;
             surface_layers[base + 0] = top;
             surface_layers[base + 1] = mid;
             surface_layers[base + 2] = deep;
