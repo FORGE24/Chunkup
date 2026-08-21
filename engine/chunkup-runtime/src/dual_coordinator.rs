@@ -555,4 +555,242 @@ mod tests {
         assert_eq!(coord.pending_gpu(), 0);
         assert_eq!(coord.pending_cpu(), 0);
     }
+
+    #[test]
+    fn concurrent_gpu_cpu_full_lifecycle() {
+        let coord = DualBackendCoordinator::new(4, 4);
+        let chunks = [
+            ChunkId(10), ChunkId(11), ChunkId(12), ChunkId(13),
+            ChunkId(20), ChunkId(21), ChunkId(22), ChunkId(23),
+        ];
+        let stages = [
+            TaskStage::DensityFill,
+            TaskStage::SurfaceBuild,
+            TaskStage::MeshBuild,
+            TaskStage::FeatureDecorate,
+            TaskStage::ChunkLoad,
+            TaskStage::LightCompute,
+        ];
+
+        for &cid in &chunks {
+            for &stage in &stages {
+                coord.submit(DispatchTask::new(cid, stage, cid.x(), cid.z()));
+            }
+        }
+
+        let total_submitted = chunks.len() * stages.len();
+        assert_eq!(total_submitted, 48);
+
+        let s = coord.stats();
+        assert!(s.pending_gpu + s.pending_cpu + s.inflight_gpu as usize + s.inflight_cpu as usize <= total_submitted);
+
+        let mut total_completed = 0;
+        let mut gpu_tasks = 0;
+        let mut cpu_tasks = 0;
+
+        for round in 0..20 {
+            let gpu_batch = coord.dispatch_gpu(4);
+            let cpu_batch = coord.dispatch_cpu(4);
+
+            for task in gpu_batch {
+                coord.complete(DispatchResult {
+                    chunk_id: task.chunk_id,
+                    stage: task.stage,
+                    epoch: task.epoch,
+                    backend: BackendLane::Gpu,
+                    status: DispatchStatus::Completed,
+                });
+                gpu_tasks += 1;
+            }
+            for task in cpu_batch {
+                coord.complete(DispatchResult {
+                    chunk_id: task.chunk_id,
+                    stage: task.stage,
+                    epoch: task.epoch,
+                    backend: BackendLane::Cpu,
+                    status: DispatchStatus::Completed,
+                });
+                cpu_tasks += 1;
+            }
+
+            let results = coord.collect(16);
+            total_completed += results.len();
+
+            let s = coord.stats();
+            if s.pending_gpu == 0 && s.pending_cpu == 0 && s.inflight_gpu == 0 && s.inflight_cpu == 0 {
+                break;
+            }
+            if round == 19 {
+                panic!("tasks did not drain after 20 rounds: pending_gpu={} pending_cpu={} inflight_gpu={} inflight_cpu={}",
+                    s.pending_gpu, s.pending_cpu, s.inflight_gpu, s.inflight_cpu);
+            }
+        }
+
+        let s = coord.stats();
+        assert_eq!(s.pending_gpu, 0);
+        assert_eq!(s.pending_cpu, 0);
+        assert_eq!(s.inflight_gpu, 0);
+        assert_eq!(s.inflight_cpu, 0);
+        assert_eq!(total_completed, 48);
+        assert!(gpu_tasks > 0);
+        assert!(cpu_tasks > 0);
+        assert_eq!(gpu_tasks + cpu_tasks, 48);
+    }
+
+    #[test]
+    fn collect_blocking_with_timeout() {
+        let coord = DualBackendCoordinator::new(4, 2);
+        let cid = ChunkId(100);
+        let task = DispatchTask::new(cid, TaskStage::DensityFill, 0, 0);
+        coord.submit(task);
+
+        let batch = coord.dispatch_gpu(1);
+        assert_eq!(batch.len(), 1);
+        let epoch = batch[0].epoch;
+
+        let results = coord.collect_blocking(1, 100);
+        assert!(results.is_empty(), "no results before complete");
+
+        coord.complete(DispatchResult {
+            chunk_id: cid,
+            stage: TaskStage::DensityFill,
+            epoch,
+            backend: BackendLane::Gpu,
+            status: DispatchStatus::Completed,
+        });
+
+        let results = coord.collect(1);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status, DispatchStatus::Completed);
+    }
+
+    #[test]
+    fn lane_stealing_gpu_takes_cpu_tasks() {
+        let coord = DualBackendCoordinator::new(4, 2);
+        for i in 0..10 {
+            let cid = ChunkId(i);
+            coord.submit(DispatchTask::new(cid, TaskStage::SurfaceBuild, i as i32, 0));
+        }
+
+        assert_eq!(coord.pending_cpu(), 10);
+        assert_eq!(coord.pending_gpu(), 0);
+
+        let gpu_batch = coord.dispatch_gpu(4);
+        assert!(gpu_batch.len() > 0, "GPU should steal CPU tasks when idle");
+        let s = coord.stats();
+        assert!(s.gpu_stole_cpu > 0, "gpu_stole_cpu should be > 0");
+    }
+
+    #[test]
+    fn lane_stealing_cpu_takes_gpu_tasks() {
+        let coord = DualBackendCoordinator::new(6, 2);
+        for i in 0..6 {
+            coord.submit(DispatchTask::new(ChunkId(i), TaskStage::ChunkLoad, i as i32, 0));
+        }
+        assert_eq!(coord.pending_gpu(), 6);
+        assert_eq!(coord.pending_cpu(), 0);
+
+        let cpu_batch = coord.dispatch_cpu(4);
+        assert!(cpu_batch.len() > 0, "CPU should steal GPU tasks when idle");
+        let s = coord.stats();
+        assert!(s.cpu_stole_gpu > 0, "cpu_stole_gpu should be > 0");
+    }
+
+    #[test]
+    fn multiple_stale_discards() {
+        let coord = DualBackendCoordinator::new(8, 4);
+        let cid = ChunkId(50);
+
+        for i in 0..10 {
+            let mut task = DispatchTask::new(cid, TaskStage::DensityFill, 0, 0);
+            task.priority_boost = i;
+            coord.submit(task);
+        }
+
+        for _ in 0..10 {
+            let batch = coord.dispatch_gpu(1);
+            for t in batch {
+                coord.complete(DispatchResult {
+                    chunk_id: t.chunk_id,
+                    stage: t.stage,
+                    epoch: t.epoch,
+                    backend: BackendLane::Gpu,
+                    status: DispatchStatus::Completed,
+                });
+            }
+        }
+
+        let s = coord.stats();
+        assert!(s.stale_discarded >= 9, "expected >=9 stale discards for 10 submits, got {}", s.stale_discarded);
+        assert!(coord.completed_pending() <= 1, "at most 1 should succeed, got {}", coord.completed_pending());
+    }
+
+    #[test]
+    fn invalidate_all_clears_epoch_table() {
+        let coord = DualBackendCoordinator::new(8, 4);
+        let mut epochs = Vec::new();
+        for i in 0..5 {
+            let cid = ChunkId(i);
+            let task = DispatchTask::new(cid, TaskStage::DensityFill, i as i32, 0);
+            coord.submit(task);
+            let task = DispatchTask::new(cid, TaskStage::SurfaceBuild, i as i32, 0);
+            coord.submit(task);
+        }
+
+        for i in 0..5 {
+            coord.invalidate(ChunkId(i), TaskStage::DensityFill);
+            coord.invalidate(ChunkId(i), TaskStage::SurfaceBuild);
+        }
+
+        let batch_gpu = coord.dispatch_gpu(8);
+        for t in batch_gpu {
+            epochs.push(t.epoch);
+            coord.complete(DispatchResult {
+                chunk_id: t.chunk_id,
+                stage: t.stage,
+                epoch: t.epoch,
+                backend: BackendLane::Gpu,
+                status: DispatchStatus::Completed,
+            });
+        }
+        let batch_cpu = coord.dispatch_cpu(8);
+        for t in batch_cpu {
+            epochs.push(t.epoch);
+            coord.complete(DispatchResult {
+                chunk_id: t.chunk_id,
+                stage: t.stage,
+                epoch: t.epoch,
+                backend: BackendLane::Cpu,
+                status: DispatchStatus::Completed,
+            });
+        }
+
+        let s = coord.stats();
+        assert_eq!(s.stale_discarded, epochs.len() as u64, "all invalidated tasks should be stale");
+        assert_eq!(coord.completed_pending(), 0, "no completed should survive invalidate");
+    }
+
+    #[test]
+    fn capacity_resize_during_operation() {
+        let coord = DualBackendCoordinator::new(4, 2);
+        for i in 0..20 {
+            coord.submit(DispatchTask::new(ChunkId(i), TaskStage::DensityFill, i as i32, 0));
+        }
+
+        coord.set_gpu_capacity(16);
+        coord.set_cpu_capacity(8);
+
+        let gpu_batch = coord.dispatch_gpu(20);
+        assert!(gpu_batch.len() <= 16, "should respect new gpu capacity");
+
+        for t in gpu_batch {
+            coord.complete(DispatchResult {
+                chunk_id: t.chunk_id,
+                stage: t.stage,
+                epoch: t.epoch,
+                backend: BackendLane::Gpu,
+                status: DispatchStatus::Completed,
+            });
+        }
+    }
 }
