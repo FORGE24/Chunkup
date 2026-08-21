@@ -185,5 +185,31 @@ object ChunkupConfig {
 	val infectionRadiusChunks: Int
 		get() = System.getProperty("chunkup.infectionRender.radius", "16")
 			.toIntOrNull()?.coerceIn(4, 32) ?: 16
+
+	val gpuCpuCoordination: Boolean
+		get() = System.getProperty("chunkup.gpuCpuCoordination", "true").toBoolean()
+
+	val gpuCapacity: Int
+		get() = System.getProperty("chunkup.gpuCapacity", "32")
+			.toIntOrNull()?.coerceIn(1, 256) ?: 32
+
+	val cpuCapacity: Int
+		get() = System.getProperty("chunkup.cpuCapacity", "8")
+			.toIntOrNull()?.coerceIn(1, 64) ?: 8
+
+	val enableLaneStealing: Boolean
+		get() = System.getProperty("chunkup.enableLaneStealing", "true").toBoolean()
+
+	val laneStealThreshold: Double
+		get() = System.getProperty("chunkup.laneStealThreshold", "0.75")
+			.toDoubleOrNull()?.coerceIn(0.1, 0.95) ?: 0.75
+
+	val coordinationBatchSize: Int
+		get() = System.getProperty("chunkup.coordinationBatchSize", "16")
+			.toIntOrNull()?.coerceIn(1, 128) ?: 16
+
+	val coordinationCollectTimeoutMs: Long
+		get() = System.getProperty("chunkup.coordinationCollectTimeoutMs", "50")
+			.toLongOrNull()?.coerceIn(1, 1000) ?: 50L
 }
 
