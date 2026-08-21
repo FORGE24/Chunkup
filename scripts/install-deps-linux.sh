@@ -83,22 +83,23 @@ install_alpine() {
     echo "==> Alpine dependencies installed"
 }
 
-if [[ "$DISTRO_ID" =~ ^(fedora|centos|rhel|rocky|almalinux|ol|amzn)$ ]] ||
-   [[ "$DISTRO_LIKE" =~ (rhel|fedora|centos) ]]; then
-    install_rhel
-elif [[ "$DISTRO_ID" =~ ^(debian|ubuntu|linuxmint|pop|elementary|kali|deepin)$ ]] ||
-     [[ "$DISTRO_LIKE" =~ debian ]]; then
-    install_deb
-elif [[ "$DISTRO_ID" =~ ^(arch|manjaro|endeavouros|artix|garuda|arcolinux)$ ]] ||
-     [[ "$DISTRO_LIKE" =~ arch ]]; then
-    install_arch
-elif [[ "$DISTRO_ID" == "alpine" ]] || [[ "$DISTRO_LIKE" =~ alpine ]]; then
-    install_alpine
-else
-    echo "==> Unknown distro (ID=$DISTRO_ID). Install manually:"
-    echo "    Build tools: cmake, gcc/g++, cargo/rust, python3"
-    echo "    OpenCL:      opencl-headers, ocl-icd (or ocl-icd-devel)"
-fi
+case "$DISTRO_ID" in
+    fedora|centos|rhel|rocky|almalinux|ol|amzn) install_rhel ;;
+    debian|ubuntu|linuxmint|pop|elementary|kali|deepin) install_deb ;;
+    arch|manjaro|endeavouros|artix|garuda|arcolinux) install_arch ;;
+    alpine) install_alpine ;;
+    *)
+        if [[ "$DISTRO_LIKE" =~ (rhel|fedora|centos) ]]; then install_rhel
+        elif [[ "$DISTRO_LIKE" =~ debian ]]; then install_deb
+        elif [[ "$DISTRO_LIKE" =~ arch ]]; then install_arch
+        elif [[ "$DISTRO_LIKE" =~ alpine ]]; then install_alpine
+        else
+            echo "==> Unknown distro (ID=$DISTRO_ID). Install manually:"
+            echo "    Build tools: cmake, gcc/g++, cargo/rust, python3"
+            echo "    OpenCL:      opencl-headers, ocl-icd (or ocl-icd-devel)"
+        fi
+        ;;
+esac
 
 echo ""
-echo "══ Ready to build! Run: ./scripts/build-engine.sh ══"
+echo "══ Ready to build! Run: ./scripts/build-engine.sh [Release|Debug] ══"
