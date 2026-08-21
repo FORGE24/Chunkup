@@ -79,7 +79,7 @@ target_compile_definitions(chunkup_opencl PRIVATE
     CHUNKUP_OPENCL_ROUTER_PATH="${CMAKE_CURRENT_SOURCE_DIR}/kernels/chunkup_router_codegen.clh"
 )
 
-target_link_libraries(chunkup_opencl PRIVATE ${OpenCL_LIBRARIES})
+target_link_libraries(chunkup_opencl PRIVATE ${OpenCL_LIBRARIES} ${CMAKE_DL_LIBS})
 
 if(MSVC)
     target_compile_options(chunkup_opencl PRIVATE /utf-8)
@@ -87,4 +87,15 @@ endif()
 
 set_target_properties(chunkup_opencl PROPERTIES
     POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH_USE_ORIGIN ON
+    INSTALL_RPATH "\$ORIGIN"
+    BUILD_RPATH "\$ORIGIN"
+)
+
+add_custom_command(TARGET chunkup_opencl POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/kernels/chunkup_kernel.cl
+        ${CMAKE_CURRENT_SOURCE_DIR}/kernels/chunkup_router_codegen.clh
+        $<TARGET_FILE_DIR:chunkup_opencl>
+    COMMENT "Copy OpenCL kernels next to libchunkup_opencl"
 )

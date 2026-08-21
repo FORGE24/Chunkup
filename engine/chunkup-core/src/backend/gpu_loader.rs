@@ -167,9 +167,24 @@ fn load_backend(
 static CUDA_LIB: OnceLock<Option<GpuBackendLib>> = OnceLock::new();
 static OPENCL_LIB: OnceLock<Option<GpuBackendLib>> = OnceLock::new();
 
+#[cfg(target_os = "linux")]
+fn linux_cuda_allowed() -> bool {
+    matches!(
+        std::env::var("CHUNKUP_ALLOW_CUDA").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
+    )
+}
+
 fn cuda_lib() -> Option<&'static GpuBackendLib> {
     CUDA_LIB
         .get_or_init(|| {
+            #[cfg(target_os = "linux")]
+            {
+                if !linux_cuda_allowed() {
+                    log::info!("chunkup gpu_loader: Linux default is OpenCL-only (set CHUNKUP_ALLOW_CUDA=1 to probe CUDA)");
+                    return None;
+                }
+            }
             load_backend(
                 "chunkup_cuda",
                 b"chunkup_cuda_is_available\0",
