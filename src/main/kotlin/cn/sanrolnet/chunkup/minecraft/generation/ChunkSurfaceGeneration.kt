@@ -11,9 +11,6 @@ import net.minecraft.world.level.chunk.ChunkAccess
 import net.minecraft.world.level.levelgen.blending.Blender
 import org.slf4j.LoggerFactory
 
-/**
- * GPU buildSurface 薄层：grass/dirt/sand/snow 等顶层 1–4 格，替代原版 surface rule 递归。
- */
 object ChunkSurfaceApplier {
 	private const val CHUNK_SIZE = 16
 	private const val STRIDE_Y = CHUNK_SIZE * CHUNK_SIZE
@@ -94,30 +91,25 @@ object ChunkSurfaceGeneration {
 	private val LOGGER = LoggerFactory.getLogger("${Chunkup.MOD_ID}.generation.surface")
 
 	@JvmStatic
-	fun tryReplaceBuildSurface(region: WorldGenRegion, chunk: ChunkAccess): Boolean {
+	fun tryReplaceBuildSurface(region: WorldGenRegion?, chunk: ChunkAccess): Boolean {
 		if (ChunkupConfig.instantLoad || !ChunkupConfig.gpuSurfaceBuild) {
 			return false
 		}
-
-		val level = region.getLevel()
-		if (!GpuGenerationCompat.isOverworld(level)) {
+		val level = region?.getLevel() ?: ChunkGenerationWorldContext.get()
+		if (level == null || !GpuGenerationCompat.isOverworld(level)) {
 			return false
 		}
-
-		val blender = Blender.of(region)
+		val blender = if (region != null) Blender.of(region) else Blender.empty()
 		if (!GpuGenerationCompat.isBlendingCompatible(blender, chunk.pos.x, chunk.pos.z)) {
 			return false
 		}
-
 		if (!GpuGenerationCompat.isFreshGenerationChunk(chunk)) {
 			return false
 		}
-
 		val engine = runCatching { Chunkup.engine }.getOrNull() ?: return false
 		if (!engine.isAvailable()) {
 			return false
 		}
-
 		val minY = level.minBuildHeight
 		val height = level.height
 		val density = ChunkDensityCache.take(chunk.pos.x, chunk.pos.z, minY, height)

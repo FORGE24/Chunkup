@@ -1,6 +1,7 @@
 package cn.sanrolnet.chunkup.client.infection
 
 import cn.sanrolnet.chunkup.client.bridge.ClientEngineBridge
+
 import com.mojang.blaze3d.pipeline.RenderCall
 import com.mojang.blaze3d.systems.RenderSystem
 import org.lwjgl.opengl.GL43

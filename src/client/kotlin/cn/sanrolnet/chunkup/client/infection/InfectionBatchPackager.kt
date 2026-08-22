@@ -6,15 +6,6 @@ import net.minecraft.core.SectionPos
 import net.minecraft.world.level.chunk.LevelChunk
 import org.slf4j.LoggerFactory
 
-/**
- * 将感染区内全部 section 方块语义打包为连续字节流，供 C++/CUDA batch mesh。
- *
- * 布局（每个 section）：
- * - int32 sectionOriginX, sectionOriginY, sectionOriginZ
- * - uint8[4096] block semantic（与 [SectionBlockStateEncoder] 一致）
- *
- * Phase 1：仅采集 + 统计；GPU kernel 与 VBO 上传在 native 层待实现。
- */
 object InfectionBatchPackager {
 	private val LOGGER = LoggerFactory.getLogger("chunkup.client.infection.pack")
 
@@ -66,7 +57,6 @@ object InfectionBatchPackager {
 	}
 
 	private fun encodeSection(chunk: LevelChunk, originX: Int, originY: Int, originZ: Int): ByteArray {
-		// 简化路径：逐 block 读 chunk section（Phase 2 可改为 WorldSlice 批量克隆）
 		val out = ByteArray(4096)
 		val pos = net.minecraft.core.BlockPos.MutableBlockPos()
 		var i = 0
