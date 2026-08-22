@@ -32,6 +32,7 @@ type GpuDensityBatchFn = unsafe extern "C" fn(
     u32,
     *mut KernelResult,
 ) -> i32;
+type GpuResidentSetPlayerFn = unsafe extern "C" fn(i32, i32);
 
 struct GpuBackendLib {
     _library: Library,
@@ -39,6 +40,7 @@ struct GpuBackendLib {
     dispatch: GpuDispatchFn,
     dispatch_batch: Option<GpuBatchDispatchFn>,
     density_fill_batch: Option<GpuDensityBatchFn>,
+    resident_set_player: Option<GpuResidentSetPlayerFn>,
 }
 
 // ── library candidate paths (FORGE24 Linux adapt) ──────────────────
@@ -122,6 +124,7 @@ fn load_backend(
     dispatch_sym: &[u8],
     batch_sym: &[u8],
     density_batch_sym: &[u8],
+    resident_set_player_sym: &[u8],
 ) -> Option<GpuBackendLib> {
     for path in library_candidates(base) {
         log::debug!("chunkup gpu_loader: trying {}", path.display());
@@ -144,13 +147,17 @@ fn load_backend(
         let density_fill_batch = unsafe { library.get::<GpuDensityBatchFn>(density_batch_sym) }
             .ok()
             .map(|sym| *sym);
+        let resident_set_player = unsafe { library.get::<GpuResidentSetPlayerFn>(resident_set_player_sym) }
+            .ok()
+            .map(|sym| *sym);
 
         log::info!(
-            "chunkup gpu_loader: loaded {} from {} (batch={} densityBatch={})",
+            "chunkup gpu_loader: loaded {} from {} (batch={} densityBatch={} residentSetPlayer={})",
             base,
             path.display(),
             dispatch_batch.is_some(),
-            density_fill_batch.is_some()
+            density_fill_batch.is_some(),
+            resident_set_player.is_some()
         );
         return Some(GpuBackendLib {
             _library: library,
@@ -158,6 +165,7 @@ fn load_backend(
             dispatch,
             dispatch_batch,
             density_fill_batch,
+            resident_set_player,
         });
     }
 
@@ -191,6 +199,7 @@ fn cuda_lib() -> Option<&'static GpuBackendLib> {
                 b"chunkup_cuda_kernel_dispatch\0",
                 b"chunkup_cuda_kernel_dispatch_batch\0",
                 b"chunkup_cuda_density_fill_batch\0",
+                b"chunkup_cuda_density_resident_set_player\0",
             )
         })
         .as_ref()
@@ -205,6 +214,7 @@ fn opencl_lib() -> Option<&'static GpuBackendLib> {
                 b"chunkup_opencl_kernel_dispatch\0",
                 b"chunkup_opencl_kernel_dispatch_batch\0",
                 b"chunkup_opencl_density_fill_batch\0",
+                b"chunkup_opencl_density_resident_set_player\0",
             )
         })
         .as_ref()
@@ -220,6 +230,15 @@ pub fn opencl_lib_loaded() -> bool {
 
 pub fn cuda_probe() -> bool {
     cuda_lib().is_some_and(|lib| unsafe { (lib.is_available)() != 0 })
+}
+
+/// VRAM 驻留：推送玩家 chunk 位置（距离 LRU 驱逐评分用）。后端未导出该符号时为 no-op。
+pub fn cuda_resident_set_player(chunk_x: i32, chunk_z: i32) {
+    if let Some(lib) = cuda_lib() {
+        if let Some(set_player) = lib.resident_set_player {
+            unsafe { set_player(chunk_x, chunk_z) };
+        }
+    }
 }
 
 pub fn opencl_probe() -> bool {

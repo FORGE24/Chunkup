@@ -60,12 +60,24 @@ object ChunkupEvents {
 			engine.shutdown()
 		}
 
-		ServerTickEvents.END_SERVER_TICK.register { _ ->
+		ServerTickEvents.END_SERVER_TICK.register { server ->
 			ChunkLoadPipeline.onServerTickEnd(engine)
+			pushPlayerChunk(server, engine)
 		}
 
 		ServerChunkEvents.CHUNK_LOAD.register { world, chunk ->
 			ChunkGenerationHooks.dispatch(world, chunk, ChunkGenerationStage.LOADED)
 		}
+	}
+
+	/** 每 20 tick（约 1 秒）推送玩家 chunk 到 GPU 驻留层（距离 LRU 驱逐评分）。 */
+	private var playerChunkTick = 0
+
+	private fun pushPlayerChunk(server: net.minecraft.server.MinecraftServer, engine: EngineBridge) {
+		if (++playerChunkTick % 20 != 0) {
+			return
+		}
+		val player = server.playerList.players.firstOrNull() ?: return
+		engine.setPlayerChunk(player.blockX shr 4, player.blockZ shr 4)
 	}
 }

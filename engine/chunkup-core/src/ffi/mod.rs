@@ -116,6 +116,16 @@ pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeShutdown
 }
 
 #[no_mangle]
+pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeSetPlayerChunk(
+    _env: JNIEnv,
+    _class: JClass,
+    chunk_x: i32,
+    chunk_z: i32,
+) {
+    crate::set_player_chunk(chunk_x, chunk_z);
+}
+
+#[no_mangle]
 pub extern "system" fn Java_cn_sanrolnet_chunkup_bridge_JniBridge_nativeOnChunkGeneration(
     _env: JNIEnv,
     _class: JClass,

@@ -23,6 +23,11 @@ public abstract class NoiseBasedChunkGeneratorMixin {
 			ChunkAccess chunk,
 			CallbackInfoReturnable<CompletableFuture<ChunkAccess>> cir
 	) {
+		/* 同步路径：噪声阶段必须在 worker 线程完成 sections 写入，
+		 * 之后 vanilla 才能推进到 SURFACE/FEATURES，保证阶段时序正确。
+		 * （异步回退：之前的 submit/future.complete 在 chunkup-density-batcher 线程写 sections
+		 *  会破坏 ChunkStatus 阶段顺序，导致 spawn 计算提前到 density apply 之前，
+		 *  玩家出生在空气或树冠内部，相机进入叶块出现"大头"视觉 bug。） */
 		if (ChunkDensityGeneration.tryReplaceNoiseFill(blender, chunk, 0, 0)) {
 			cir.setReturnValue(CompletableFuture.completedFuture(chunk));
 			cir.cancel();

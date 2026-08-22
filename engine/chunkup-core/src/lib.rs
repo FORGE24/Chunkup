@@ -158,6 +158,11 @@ pub fn generate_chunk_density(
     Some((workspace.density, workspace.fluid))
 }
 
+/// VRAM 驻留：推送玩家 chunk 位置，供 CUDA 侧距离 LRU 驱逐评分（每秒一次即可）。
+pub fn set_player_chunk(chunk_x: i32, chunk_z: i32) {
+    backend::gpu_loader::cuda_resident_set_player(chunk_x, chunk_z);
+}
+
 pub fn generate_chunk_density_batch(
     chunk_coords: &[(i32, i32)],
     min_y: i32,

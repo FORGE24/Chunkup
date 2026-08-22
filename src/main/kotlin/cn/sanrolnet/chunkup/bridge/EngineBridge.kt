@@ -73,6 +73,12 @@ interface EngineBridge {
 		worldSeed: Long,
 	): List<ChunkDensityFill?>? = null
 
+	/**
+	 * VRAM 驻留：推送玩家 chunk 位置，用于按距离驱逐（离玩家最近的数据优先驻留 VRAM）。
+	 * 后端不支持时为 no-op。
+	 */
+	fun setPlayerChunk(chunkX: Int, chunkZ: Int) {}
+
 	/** GPU buildSurface 薄层：返回 256×4 surface block ID。 */
 	fun generateSurfaceThin(
 		chunkX: Int,

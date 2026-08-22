@@ -65,6 +65,27 @@ object ChunkDensityBatcher {
 		level: ServerLevel?,
 		worldSeed: Long,
 	): ChunkDensityFill? {
+		return try {
+			submit(engine, chunk, minY, height, level, worldSeed).get(120, TimeUnit.SECONDS)
+		} catch (e: Exception) {
+			LOGGER.error("density batch wait failed for [{}, {}]", chunk.pos.x, chunk.pos.z, e)
+			null
+		}
+	}
+
+	/**
+	 * 异步入队：立即返回 future，worker 不阻塞等待 GPU。
+	 * 多个 worldgen worker 可同时入队，攒批窗口内自然形成 Count>1。
+	 */
+	@JvmStatic
+	fun submit(
+		engine: EngineBridge,
+		chunk: ChunkAccess,
+		minY: Int,
+		height: Int,
+		level: ServerLevel?,
+		worldSeed: Long,
+	): CompletableFuture<ChunkDensityFill> {
 		val dimension = level?.dimension() ?: Level.OVERWORLD
 		val key = BatchKey(dimension, minY, height, worldSeed)
 		val request = Pending(
@@ -97,12 +118,7 @@ object ChunkDensityBatcher {
 			drainFlush(engine, force = true)
 		}
 
-		return try {
-			request.future.get(120, TimeUnit.SECONDS)
-		} catch (e: Exception) {
-			LOGGER.error("density batch wait failed for [{}, {}]", chunk.pos.x, chunk.pos.z, e)
-			null
-		}
+		return request.future
 	}
 
 	private fun drainFlush(engine: EngineBridge, force: Boolean) {

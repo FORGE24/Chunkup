@@ -166,6 +166,11 @@ object JniBridge : EngineBridge {
 		return ChunkDensityFill(density, fluid)
 	}
 
+	override fun setPlayerChunk(chunkX: Int, chunkZ: Int) {
+		if (!loaded) return
+		nativeSetPlayerChunk(chunkX, chunkZ)
+	}
+
 	override fun generateSurfaceThin(
 		chunkX: Int,
 		chunkZ: Int,
@@ -217,6 +222,9 @@ object JniBridge : EngineBridge {
 
 	@JvmStatic
 	private external fun nativeSetNativeLibraryDirectory(directory: String)
+
+	@JvmStatic
+	private external fun nativeSetPlayerChunk(chunkX: Int, chunkZ: Int)
 
 	@JvmStatic
 	private external fun nativeIsAvailable(): Boolean

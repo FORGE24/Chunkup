@@ -22,6 +22,10 @@
 
 #include <cuda_runtime.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <unordered_map>
+#include <vector>
+#include <algorithm>
 
 static int chunkup_cuda_check(cudaError_t err) {
     if (err != cudaSuccess) {
@@ -968,6 +972,18 @@ extern "C" CHUNKUP_API int chunkup_cuda_kernel_dispatch_batch(
     return cudaGetLastError() == cudaSuccess ? 0 : -10;
 }
 
+/* VRAM 密度驻留（定义见文件末尾；budget<=0 时为 no-op） */
+extern "C" CHUNKUP_API int chunkup_cuda_density_resident_store(
+    int batch_count,
+    const int32_t* chunk_xs,
+    const int32_t* chunk_zs,
+    int32_t min_y,
+    int32_t height,
+    uint32_t blocks_per_chunk,
+    const float* batch_d_density,
+    const uint8_t* batch_d_fluid
+);
+
 extern "C" CHUNKUP_API int chunkup_cuda_density_fill_batch(
     const ChunkupKernelJob* template_job,
     int batch_count,
@@ -1095,6 +1111,217 @@ extern "C" CHUNKUP_API int chunkup_cuda_density_fill_batch(
         memcpy(host_fluid, g_chunkup_pinned_batch.host_fluid, light_bytes);
     }
 
+    /* VRAM 驻留：批量成功后按 chunk 驻留密度/流体（GPU_OWNED），
+     * 玩家距离 LRU 驱逐，后续阶段按需回取避免重算与 PCIe 乒乓。 */
+    chunkup_cuda_density_resident_store(
+        batch_count,
+        chunk_xs,
+        chunk_zs,
+        template_job->min_y,
+        template_job->height,
+        blocks_per_chunk,
+        d_density,
+        d_fluid
+    );
+
     result->ops_completed |= CHUNKUP_OP_NOISE_FILL;
     return cudaGetLastError() == cudaSuccess ? 0 : -10;
+}
+
+/* ===================== VRAM 密度驻留（玩家距离 LRU，设计 §9） =====================
+ *
+ * 目标：批量密度计算完成后数据不丢弃，按 chunk 驻留 VRAM；
+ * 超出预算时按「离玩家曼哈顿距离」降序驱逐（最远先走）。
+ * 消费方通过 resident_fetch 按需回读单 chunk（D2H 384KB ≈ 40µs，
+ * 远低于重算 kernel 的 16-24ms），建立 GPU_OWNED 数据权威。
+ */
+
+struct ChunkupResidentChunk {
+    int32_t min_y;
+    int32_t height;
+    uint32_t blocks_per_chunk;
+    float* d_density;
+    uint8_t* d_fluid;
+};
+
+static std::unordered_map<int64_t, ChunkupResidentChunk> g_chunkup_resident;
+static int32_t g_chunkup_resident_player_x = 0;
+static int32_t g_chunkup_resident_player_z = 0;
+static int g_chunkup_resident_player_set = 0;
+static size_t g_chunkup_resident_bytes = 0;
+static size_t g_chunkup_resident_budget = (size_t)512 * 1024 * 1024; /* 默认 512MB */
+static uint64_t g_chunkup_resident_evicted = 0;
+
+static int64_t chunkup_resident_key(int32_t x, int32_t z) {
+    return ((int64_t)x << 32) | (uint32_t)z;
+}
+
+static uint64_t chunkup_resident_distance(int64_t key) {
+    const int32_t cx = (int32_t)(key >> 32);
+    const int32_t cz = (int32_t)(key & 0xFFFFFFFFu);
+    const int64_t dx = (int64_t)cx - (int64_t)g_chunkup_resident_player_x;
+    const int64_t dz = (int64_t)cz - (int64_t)g_chunkup_resident_player_z;
+    return (uint64_t)(dx < 0 ? -dx : dx) + (uint64_t)(dz < 0 ? -dz : dz);
+}
+
+static void chunkup_resident_release(ChunkupResidentChunk& entry) {
+    if (entry.d_density) {
+        cudaFree(entry.d_density);
+    }
+    if (entry.d_fluid) {
+        cudaFree(entry.d_fluid);
+    }
+    g_chunkup_resident_bytes -=
+        (size_t)entry.blocks_per_chunk * sizeof(float) + (size_t)entry.blocks_per_chunk;
+}
+
+/* 超预算时按玩家距离降序驱逐。玩家未知时不驱逐（无法评分）。 */
+static void chunkup_resident_evict_over_budget(void) {
+    if (g_chunkup_resident_bytes <= g_chunkup_resident_budget || !g_chunkup_resident_player_set) {
+        return;
+    }
+    std::vector<std::pair<uint64_t, int64_t>> scored;
+    scored.reserve(g_chunkup_resident.size());
+    for (const auto& kv : g_chunkup_resident) {
+        scored.emplace_back(chunkup_resident_distance(kv.first), kv.first);
+    }
+    std::sort(scored.begin(), scored.end(),
+              [](const std::pair<uint64_t, int64_t>& a, const std::pair<uint64_t, int64_t>& b) {
+                  return a.first > b.first;
+              });
+    for (size_t i = 0; i < scored.size(); ++i) {
+        if (g_chunkup_resident_bytes <= g_chunkup_resident_budget) {
+            break;
+        }
+        const int64_t key = scored[i].second;
+        auto it = g_chunkup_resident.find(key);
+        if (it == g_chunkup_resident.end()) {
+            continue;
+        }
+        chunkup_resident_release(it->second);
+        g_chunkup_resident.erase(it);
+        g_chunkup_resident_evicted++;
+    }
+}
+
+extern "C" CHUNKUP_API int chunkup_cuda_density_resident_store(
+    int batch_count,
+    const int32_t* chunk_xs,
+    const int32_t* chunk_zs,
+    int32_t min_y,
+    int32_t height,
+    uint32_t blocks_per_chunk,
+    const float* batch_d_density,
+    const uint8_t* batch_d_fluid
+) {
+    if (g_chunkup_resident_budget == 0) {
+        return 0;
+    }
+    if (batch_count <= 0 || !chunk_xs || !chunk_zs || !batch_d_density || blocks_per_chunk == 0u) {
+        return -1;
+    }
+    for (int i = 0; i < batch_count; ++i) {
+        const int64_t key = chunkup_resident_key(chunk_xs[i], chunk_zs[i]);
+        const size_t doff = (size_t)i * blocks_per_chunk;
+        auto it = g_chunkup_resident.find(key);
+        if (it != g_chunkup_resident.end()) {
+            /* 已驻留：D2D 覆盖刷新 */
+            if (it->second.blocks_per_chunk == blocks_per_chunk && it->second.min_y == min_y) {
+                cudaMemcpy(it->second.d_density, batch_d_density + doff,
+                           (size_t)blocks_per_chunk * sizeof(float), cudaMemcpyDeviceToDevice);
+                if (batch_d_fluid && it->second.d_fluid) {
+                    cudaMemcpy(it->second.d_fluid, batch_d_fluid + doff,
+                               (size_t)blocks_per_chunk, cudaMemcpyDeviceToDevice);
+                }
+            } else {
+                /* 形状变了：释放重驻 */
+                chunkup_resident_release(it->second);
+                g_chunkup_resident.erase(it);
+            }
+            if (g_chunkup_resident.find(key) != g_chunkup_resident.end()) {
+                continue;
+            }
+        }
+
+        ChunkupResidentChunk entry = {min_y, height, blocks_per_chunk, NULL, NULL};
+        if (cudaMalloc(&entry.d_density, (size_t)blocks_per_chunk * sizeof(float)) != cudaSuccess ||
+            cudaMalloc(&entry.d_fluid, (size_t)blocks_per_chunk) != cudaSuccess) {
+            if (entry.d_density) cudaFree(entry.d_density);
+            if (entry.d_fluid) cudaFree(entry.d_fluid);
+            return -10;
+        }
+        cudaMemcpy(entry.d_density, batch_d_density + doff,
+                   (size_t)blocks_per_chunk * sizeof(float), cudaMemcpyDeviceToDevice);
+        if (batch_d_fluid) {
+            cudaMemcpy(entry.d_fluid, batch_d_fluid + doff,
+                       (size_t)blocks_per_chunk, cudaMemcpyDeviceToDevice);
+        }
+        g_chunkup_resident_bytes +=
+            (size_t)blocks_per_chunk * sizeof(float) + (size_t)blocks_per_chunk;
+        g_chunkup_resident.emplace(key, entry);
+    }
+    chunkup_resident_evict_over_budget();
+    return 0;
+}
+
+/* 命中返回 1（数据已拷到 host），未命中返回 0，错误返回负值。 */
+extern "C" CHUNKUP_API int chunkup_cuda_density_resident_fetch(
+    int32_t chunk_x,
+    int32_t chunk_z,
+    int32_t min_y,
+    int32_t height,
+    float* host_density,
+    uint8_t* host_fluid,
+    uint32_t blocks_per_chunk
+) {
+    const auto it = g_chunkup_resident.find(chunkup_resident_key(chunk_x, chunk_z));
+    if (it == g_chunkup_resident.end()) {
+        return 0;
+    }
+    const ChunkupResidentChunk& e = it->second;
+    if (e.min_y != min_y || e.height != height || e.blocks_per_chunk != blocks_per_chunk) {
+        return 0;
+    }
+    if (!host_density) {
+        return -1;
+    }
+    if (cudaMemcpy(host_density, e.d_density,
+                   (size_t)blocks_per_chunk * sizeof(float), cudaMemcpyDeviceToHost) != cudaSuccess) {
+        return -10;
+    }
+    if (host_fluid && e.d_fluid) {
+        if (cudaMemcpy(host_fluid, e.d_fluid,
+                       (size_t)blocks_per_chunk, cudaMemcpyDeviceToHost) != cudaSuccess) {
+            return -10;
+        }
+    }
+    return 1;
+}
+
+extern "C" CHUNKUP_API void chunkup_cuda_density_resident_set_player(int32_t chunk_x, int32_t chunk_z) {
+    g_chunkup_resident_player_x = chunk_x;
+    g_chunkup_resident_player_z = chunk_z;
+    g_chunkup_resident_player_set = 1;
+    chunkup_resident_evict_over_budget();
+}
+
+extern "C" CHUNKUP_API void chunkup_cuda_density_resident_set_budget(size_t bytes) {
+    g_chunkup_resident_budget = bytes;
+    chunkup_resident_evict_over_budget();
+}
+
+extern "C" CHUNKUP_API void chunkup_cuda_density_resident_stats(
+    uint32_t* count,
+    uint64_t* bytes,
+    uint64_t* evicted
+) {
+    if (count) {
+        *count = (uint32_t)g_chunkup_resident.size();
+    }
+    if (bytes) {
+        *bytes = (uint64_t)g_chunkup_resident_bytes;
+    }
+    if (evicted) {
+        *evicted = g_chunkup_resident_evicted;
+    }
 }
