@@ -63,10 +63,12 @@ loom {
 			// gpuSurfaceBuild=false: 关闭 GPU 薄层，surface 走 vanilla 100% 准确
 			vmArg("-Dchunkup.gpuWorldGen=true")
 			vmArg("-Dchunkup.gpuSurfaceBuild=false")
+			// 密度批量：8/20 调试期 coalesceMs=0/minFlush=1 退化为单 chunk 往返（实测 Count=1×618 批，
+			// 每批 24-42ms），恢复批量——8ms 聚合窗、16ms 硬上限、攒够 8 个提前发
 			vmArg("-Dchunkup.gpuDensityBatch.size=${propOrDefault("chunkupDensityBatchSize", "32")}")
-			vmArg("-Dchunkup.gpuDensityBatch.coalesceMs=${propOrDefault("chunkupDensityCoalesceMs", "0")}")
-			vmArg("-Dchunkup.gpuDensityBatch.maxWaitMs=${propOrDefault("chunkupDensityMaxWaitMs", "8")}")
-			vmArg("-Dchunkup.gpuDensityBatch.minFlush=${propOrDefault("chunkupDensityMinFlush", "1")}")
+			vmArg("-Dchunkup.gpuDensityBatch.coalesceMs=${propOrDefault("chunkupDensityCoalesceMs", "8")}")
+			vmArg("-Dchunkup.gpuDensityBatch.maxWaitMs=${propOrDefault("chunkupDensityMaxWaitMs", "16")}")
+			vmArg("-Dchunkup.gpuDensityBatch.minFlush=${propOrDefault("chunkupDensityMinFlush", "8")}")
 			vmArg("-Dchunkup.forceGpu=false")
 		vmArg("-Dchunkup.gpuSections=false") // 强制关闭 Rust section fast-path（实验性，settings.json 默认 true 会触发不渲染）
 		vmArg("-Dchunkup.f3Debug=true")
