@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.18)
+
+# CMAKE_CUDA_ARCHITECTURES 必须在 project() 前设置（project 内读取为全局默认；
+# 放在后面会导致 CUDA 11.8 回落默认 sm_52，Pascal+ 设备运行时 JIT 编译）
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES "61;75;86;89" CACHE STRING "CUDA architectures to target")
+endif()
+
 project(chunkup_cuda LANGUAGES C CXX CUDA)
 
 set(CHUNKUP_COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../common)
@@ -7,6 +14,11 @@ set(CHUNKUP_COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 # On Windows: nvcc is typically in PATH via CUDA installer
 # On Linux (RHEL/Debian): nvcc at /usr/local/cuda/bin/nvcc or /opt/cuda/bin/nvcc
 #   build-engine.sh passes -DCUDAToolkit_ROOT=... and -DCMAKE_CUDA_COMPILER=...
+# Windows: CUDA_PATH 环境变量（CUDA 安装器设置）→ CUDAToolkit_ROOT
+if(NOT DEFINED CUDAToolkit_ROOT AND DEFINED ENV{CUDA_PATH})
+    set(CUDAToolkit_ROOT "$ENV{CUDA_PATH}")
+endif()
+
 if(NOT DEFINED CMAKE_CUDA_COMPILER)
     # Try find_package first (CMake 3.17+)
     find_package(CUDAToolkit QUIET)
@@ -33,6 +45,17 @@ endif()
 
 message(STATUS "CUDA compiler: ${CMAKE_CUDA_COMPILER}")
 
+# CMAKE_CUDA_COMPILER 由外部传入时，上面的 find_package 分支被跳过；
+# 此处无条件确保 CUDAToolkit_FOUND（CUDA::cudart + include 路径，host .c 需要 cuda_runtime.h）
+if(NOT CUDAToolkit_FOUND)
+    find_package(CUDAToolkit QUIET)
+    if(CUDAToolkit_FOUND)
+        message(STATUS "CUDA toolkit found: ${CUDAToolkit_LIBRARY_ROOT}")
+    else()
+        message(WARNING "CUDAToolkit not found; CUDA::cudart unavailable")
+    endif()
+endif()
+
 # ── architecture flags ─────────────────────────────────────────────
 include(CheckLanguage)
 check_language(CUDA)
@@ -40,8 +63,6 @@ if(CMAKE_CUDA_COMPILER)
     enable_language(CUDA)
 endif()
 
-# Detect CUDA compute capability
-set(CMAKE_CUDA_ARCHITECTURES "61;75;86;89" CACHE STRING "CUDA architectures to target")
 if(NOT MSVC)
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler -fPIC")
 endif()
@@ -60,7 +81,12 @@ target_include_directories(chunkup_cuda PRIVATE ${CHUNKUP_COMMON_DIR})
 target_compile_definitions(chunkup_cuda PRIVATE CHUNKUP_EXPORT_BUILD)
 
 if(MSVC)
-    target_compile_options(chunkup_cuda PRIVATE /utf-8)
+    # /utf-8 必须按语言区分：C/C++ 直接传，CUDA 需经 -Xcompiler 包装，
+    # 否则 nvcc 把裸 /utf-8 当作输入文件（"A single input file is required"）
+    target_compile_options(chunkup_cuda PRIVATE
+        $<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>
+    )
 endif()
 
 set_target_properties(chunkup_cuda PROPERTIES

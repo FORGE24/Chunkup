@@ -306,35 +306,53 @@ def main():
     w("};")
     w("")
 
-    # DF 节点表
+    # DF 节点表（X-macro 双份：host static const + CUDA __constant__ 副本）
     m = len(g.df_nodes)
     w(f"#define CHUNKUP_WG_DF_NODE_COUNT {m}")
     w("")
-    w(f"static const ChunkupDfNode CHUNKUP_WG_DF_NODES[{m}] = {{")
+    w("#define CHUNKUP_WG_DF_NODES_DATA \\")
+    w("{ \\")
     for nd in g.df_nodes:
         tname = "CHUNKUP_DF_" + TYPE_ORDER[nd["type"]]
         parts = [tname, str(nd["a"]), str(nd["b"]), str(nd["c"]), str(nd["d"])]
         parts += [c_double(nd["v0"]), c_double(nd["v1"]), c_double(nd["v2"]), c_double(nd["v3"])]
-        w("    { " + ", ".join(parts) + " },")
-    w("};")
+        w("    { " + ", ".join(parts) + " }, \\")
+    w("}")
+    w(f"static const ChunkupDfNode CHUNKUP_WG_DF_NODES[{m}] = CHUNKUP_WG_DF_NODES_DATA;")
+    w("#ifdef __CUDACC__")
+    w(f"__device__ __constant__ ChunkupDfNode CHUNKUP_WG_DF_NODES_DEV[{m}] = CHUNKUP_WG_DF_NODES_DATA;")
+    w("#endif")
+    w("#undef CHUNKUP_WG_DF_NODES_DATA")
     w("")
 
-    # spline 表
+    # spline 表（X-macro 双份）
     sn = len(g.spline_nodes)
     sp = len(g.spline_points)
     w(f"#define CHUNKUP_WG_SPLINE_NODE_COUNT {sn}")
     w(f"#define CHUNKUP_WG_SPLINE_POINT_COUNT {sp}")
     w("")
     if sn:
-        w(f"static const ChunkupSplineNode CHUNKUP_WG_SPLINE_NODES[{sn}] = {{")
+        w("#define CHUNKUP_WG_SPLINE_NODES_DATA \\")
+        w("{ \\")
         for nd in g.spline_nodes:
-            w(f"    {{ {nd['coord_df']}, {nd['point_start']}, {nd['point_count']} }},")
-        w("};")
+            w(f"    {{ {nd['coord_df']}, {nd['point_start']}, {nd['point_count']} }}, \\")
+        w("}")
+        w(f"static const ChunkupSplineNode CHUNKUP_WG_SPLINE_NODES[{sn}] = CHUNKUP_WG_SPLINE_NODES_DATA;")
+        w("#ifdef __CUDACC__")
+        w(f"__device__ __constant__ ChunkupSplineNode CHUNKUP_WG_SPLINE_NODES_DEV[{sn}] = CHUNKUP_WG_SPLINE_NODES_DATA;")
+        w("#endif")
+        w("#undef CHUNKUP_WG_SPLINE_NODES_DATA")
         w("")
-        w(f"static const ChunkupSplinePoint CHUNKUP_WG_SPLINE_POINTS[{sp}] = {{")
+        w("#define CHUNKUP_WG_SPLINE_POINTS_DATA \\")
+        w("{ \\")
         for pt in g.spline_points:
-            w(f"    {{ {c_double(pt['location'])}, {c_double(pt['derivative'])}, {pt['value_spline']} }},")
-        w("};")
+            w(f"    {{ {c_double(pt['location'])}, {c_double(pt['derivative'])}, {pt['value_spline']} }}, \\")
+        w("}")
+        w(f"static const ChunkupSplinePoint CHUNKUP_WG_SPLINE_POINTS[{sp}] = CHUNKUP_WG_SPLINE_POINTS_DATA;")
+        w("#ifdef __CUDACC__")
+        w(f"__device__ __constant__ ChunkupSplinePoint CHUNKUP_WG_SPLINE_POINTS_DEV[{sp}] = CHUNKUP_WG_SPLINE_POINTS_DATA;")
+        w("#endif")
+        w("#undef CHUNKUP_WG_SPLINE_POINTS_DATA")
     else:
         w("static const ChunkupSplineNode CHUNKUP_WG_SPLINE_NODES[1] = { { -1, 0, 0 } };")
         w("static const ChunkupSplinePoint CHUNKUP_WG_SPLINE_POINTS[1] = { { 0.0, 0.0, -1 } };")

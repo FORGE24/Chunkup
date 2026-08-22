@@ -44,6 +44,9 @@ typedef struct ChunkupKernelJob {
     uint32_t seed;
     uint32_t op_mask;
     uint32_t stage;
+    /* 完整 64 位世界种子：wg_eval 位精确噪声派生需要（vanilla RandomState 用 64 位）。
+     * 旧 seed 为 32 位折叠值，仅供 legacy LCG bundle 路径。 */
+    uint64_t world_seed;
 } ChunkupKernelJob;
 
 typedef struct ChunkupKernelBuffers {

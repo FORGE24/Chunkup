@@ -83,7 +83,11 @@ CHUNKUP_FN double chunkup_mth_clamp(double d, double e, double f) {
 CHUNKUP_FN float chunkup_wg_spline_point_value(ChunkupWgChunk* c, const ChunkupSplinePoint* pt, int32_t bx, int32_t by, int32_t bz) {
     if (pt->value_spline >= 0) {
         /* 常量点：生成器已圆整到 float32 存储 */
+#if defined(__CUDA_ARCH__)
+        return (float)CHUNKUP_WG_DF_NODES_DEV[pt->value_spline].v0;
+#else
         return (float)CHUNKUP_WG_DF_NODES[pt->value_spline].v0;
+#endif
     }
     return chunkup_wg_spline_apply(c, -pt->value_spline - 2, bx, by, bz);
 }
@@ -97,8 +101,13 @@ CHUNKUP_FN float chunkup_wg_spline_linear_extend(
 }
 
 CHUNKUP_FN float chunkup_wg_spline_apply(ChunkupWgChunk* c, int32_t sidx, int32_t bx, int32_t by, int32_t bz) {
+#if defined(__CUDA_ARCH__)
+    const ChunkupSplineNode* sn = &CHUNKUP_WG_SPLINE_NODES_DEV[sidx];
+    const ChunkupSplinePoint* pts = &CHUNKUP_WG_SPLINE_POINTS_DEV[sn->point_start];
+#else
     const ChunkupSplineNode* sn = &CHUNKUP_WG_SPLINE_NODES[sidx];
     const ChunkupSplinePoint* pts = &CHUNKUP_WG_SPLINE_POINTS[sn->point_start];
+#endif
     const int n = sn->point_count;
 
     /* Coordinate.apply = (float)function.compute(ctx) */
@@ -135,7 +144,11 @@ CHUNKUP_FN float chunkup_wg_spline_apply(ChunkupWgChunk* c, int32_t sidx, int32_
 /* ---------------------------------------------------------------- DF 树求值 */
 
 CHUNKUP_FN double chunkup_wg_df(ChunkupWgChunk* c, int32_t idx, int32_t bx, int32_t by, int32_t bz) {
+#if defined(__CUDA_ARCH__)
+    const ChunkupDfNode* nd = &CHUNKUP_WG_DF_NODES_DEV[idx];
+#else
     const ChunkupDfNode* nd = &CHUNKUP_WG_DF_NODES[idx];
+#endif
 
     switch (nd->type) {
     case CHUNKUP_DF_CONSTANT:
@@ -327,10 +340,11 @@ CHUNKUP_FN double chunkup_wg_df(ChunkupWgChunk* c, int32_t idx, int32_t bx, int3
 }
 
 /* ---------------------------------------------------------------- 可达性扫描（DFS 后序 = mapAll 包装序） */
+/* host-only：依赖 CHUNKUP_WG_NOISE_KEYS（字符串表）等 host 资源，不进 device 编译 */
 
-CHUNKUP_FN void chunkup_wg_scan_spline(ChunkupWgWorld* w, int32_t sidx, uint8_t* visited);
+static void chunkup_wg_scan_spline(ChunkupWgWorld* w, int32_t sidx, uint8_t* visited);
 
-CHUNKUP_FN void chunkup_wg_scan_dfs(ChunkupWgWorld* w, int32_t idx, uint8_t* visited) {
+static void chunkup_wg_scan_dfs(ChunkupWgWorld* w, int32_t idx, uint8_t* visited) {
     if (idx < 0 || visited[idx]) {
         return;
     }
@@ -359,7 +373,7 @@ CHUNKUP_FN void chunkup_wg_scan_dfs(ChunkupWgWorld* w, int32_t idx, uint8_t* vis
     }
 }
 
-CHUNKUP_FN void chunkup_wg_scan_spline(ChunkupWgWorld* w, int32_t sidx, uint8_t* visited) {
+static void chunkup_wg_scan_spline(ChunkupWgWorld* w, int32_t sidx, uint8_t* visited) {
     const ChunkupSplineNode* sn = &CHUNKUP_WG_SPLINE_NODES[sidx];
     chunkup_wg_scan_dfs(w, sn->coord_df, visited);
     for (int32_t i = 0; i < sn->point_count; ++i) {
@@ -372,8 +386,10 @@ CHUNKUP_FN void chunkup_wg_scan_spline(ChunkupWgWorld* w, int32_t sidx, uint8_t*
 }
 
 /* ---------------------------------------------------------------- 世界初始化 */
+/* host-only：噪声实例派生（strlen / 字符串哈希）只在 host 执行；CUDA 侧由
+ * host 初始化后整体 cudaMemcpy 到 device（ChunkupWgWorld 为纯 POD）。 */
 
-CHUNKUP_FN void chunkup_wg_world_init(ChunkupWgWorld* w, uint64_t seed) {
+static void chunkup_wg_world_init(ChunkupWgWorld* w, uint64_t seed) {
     memset(w, 0, sizeof(*w));
 
     /* random = XoroshiroRandomSource(seed).forkPositional() */
@@ -420,8 +436,9 @@ CHUNKUP_FN void chunkup_wg_world_init(ChunkupWgWorld* w, uint64_t seed) {
 }
 
 /* ---------------------------------------------------------------- 区块初始化 */
+/* host-only：flat/interp 角点预计算走 host 缓存路径 */
 
-CHUNKUP_FN void chunkup_wg_chunk_init(ChunkupWgChunk* c, ChunkupWgWorld* w, int32_t chunk_x, int32_t chunk_z) {
+static void chunkup_wg_chunk_init(ChunkupWgChunk* c, ChunkupWgWorld* w, int32_t chunk_x, int32_t chunk_z) {
     c->world = w;
     c->chunk_x = chunk_x;
     c->chunk_z = chunk_z;
@@ -503,6 +520,10 @@ CHUNKUP_FN double chunkup_wg_initial_density_direct(
 
 /* --- 实现 --- */
 
+/* stub 双份：device 全局（__device__ static，kernel 并发写相同值——良性）+ host static */
+#if defined(__CUDACC__)
+__device__ static ChunkupWgChunk chunkup_wg_direct_stub_dev;
+#endif
 static ChunkupWgChunk chunkup_wg_direct_stub;
 
 CHUNKUP_FN double chunkup_wg_eval_direct(
@@ -511,12 +532,17 @@ CHUNKUP_FN double chunkup_wg_eval_direct(
     /* min_bx/min_bz/first_noise_* 全 INT32_MIN：任意 block 坐标减出来
      * 都越界（k<0 或 lx>=16），flat_cache / interp marker 走 fallthrough
      * 递归路径，stub.flat_vals / interp_vals 永不访问。 */
-    chunkup_wg_direct_stub.world = w;
-    chunkup_wg_direct_stub.min_bx = INT32_MIN;
-    chunkup_wg_direct_stub.min_bz = INT32_MIN;
-    chunkup_wg_direct_stub.first_noise_x = INT32_MIN;
-    chunkup_wg_direct_stub.first_noise_z = INT32_MIN;
-    return chunkup_wg_df(&chunkup_wg_direct_stub, df_idx, bx, by, bz);
+#if defined(__CUDA_ARCH__)
+    ChunkupWgChunk* stub = &chunkup_wg_direct_stub_dev;
+#else
+    ChunkupWgChunk* stub = &chunkup_wg_direct_stub;
+#endif
+    stub->world = w;
+    stub->min_bx = INT32_MIN;
+    stub->min_bz = INT32_MIN;
+    stub->first_noise_x = INT32_MIN;
+    stub->first_noise_z = INT32_MIN;
+    return chunkup_wg_df(stub, df_idx, bx, by, bz);
 }
 
 CHUNKUP_FN double chunkup_wg_block_density_direct(
@@ -540,30 +566,38 @@ CHUNKUP_FN uint8_t chunkup_wg_aquifer_fluid(
         return 0u;
     }
 
-    const double barrier = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_BARRIER, bx, by, bz);
-    const double flooded = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_FLUID_LEVEL_FLOODEDNESS, bx, by, bz);
-    const double spread  = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_FLUID_LEVEL_SPREAD, bx, by, bz);
-    const double lava    = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_LAVA, bx, by, bz);
-
-    const double fluid_level = (double)CHUNKUP_WG_SEA_LEVEL + spread * 14.0;
-    const double barrier_level = barrier * 0.5;
-    const double flooded_level = flooded;
-
-    const int barrier_blocks = (by < (int)fluid_level) && (barrier_level > 0.4);
-    if (barrier_blocks) {
+    /* spread 为 NormalNoise，值域 (-1,1) ⇒ fluid_level = 63 + spread*14 < 77。
+     * by >= 78 时 by > (int)fluid_level 恒成立，四个噪声求值全部可省（结果必为 0）。 */
+    if (by > (int32_t)CHUNKUP_WG_SEA_LEVEL + 14) {
         return 0u;
     }
+
+    const double spread = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_FLUID_LEVEL_SPREAD, bx, by, bz);
+    const double fluid_level = (double)CHUNKUP_WG_SEA_LEVEL + spread * 14.0;
 
     if (by > (int)fluid_level) {
         return 0u;
     }
 
-    if (flooded_level < -0.2) {
+    /* barrier 仅在 by < fluid_level 时可能改变结果 */
+    if (by < (int)fluid_level) {
+        const double barrier = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_BARRIER, bx, by, bz);
+        if (barrier * 0.5 > 0.4) {
+            return 0u;
+        }
+    }
+
+    const double flooded = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_FLUID_LEVEL_FLOODEDNESS, bx, by, bz);
+    if (flooded < -0.2) {
         return 0u;
     }
 
-    if (by < -54 && lava > 0.35) {
-        return 2u;
+    /* lava 仅深地层需要 */
+    if (by < -54) {
+        const double lava = chunkup_wg_eval_direct(w, CHUNKUP_WG_DF_LAVA, bx, by, bz);
+        if (lava > 0.35) {
+            return 2u;
+        }
     }
 
     return 1u;

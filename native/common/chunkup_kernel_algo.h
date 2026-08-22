@@ -20,20 +20,6 @@ __constant__ ChunkupNoiseBundle chunkup_device_bundle;
 extern ChunkupNoiseBundle chunkup_active_bundle;
 #endif
 
-CHUNKUP_HD float chunkup_density_at(int wx, int wy, int wz, uint32_t seed) {
-    (void)seed;
-#if defined(__CUDACC__)
-    const ChunkupNoiseBundle* bundle = &chunkup_device_bundle;
-#else
-    const ChunkupNoiseBundle* bundle = &chunkup_active_bundle;
-#endif
-    const float fx = (float)wx;
-    const float fy = (float)wy;
-    const float fz = (float)wz;
-    ChunkupRouterSample2D s2d = chunkup_router_sample_2d(bundle, fx, fz);
-    return chunkup_router_initial_density(bundle, &s2d, fx, fy, fz);
-}
-
 CHUNKUP_HD int chunkup_is_solid(float density) {
     return density > 0.0f;
 }

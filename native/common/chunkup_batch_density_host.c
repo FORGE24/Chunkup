@@ -23,6 +23,8 @@ int chunkup_kernel_dispatch_density_batch(
 
     chunkup_noise_prepare(template_job->seed);
 
+    ChunkupWgWorld* wg = chunkup_noise_wg_world(template_job->world_seed);
+
     for (int i = 0; i < batch_count; ++i) {
         const int base_x = chunk_xs[i] * (int)CHUNKUP_CHUNK_SIZE;
         const int base_z = chunk_zs[i] * (int)CHUNKUP_CHUNK_SIZE;
@@ -30,7 +32,7 @@ int chunkup_kernel_dispatch_density_batch(
         uint8_t* chunk_fluid = host_fluid ? host_fluid + (size_t)i * blocks_per_chunk : NULL;
 
         chunkup_cell_fill_chunk(
-            &chunkup_active_bundle,
+            wg,
             base_x,
             base_z,
             template_job->min_y,

@@ -18,15 +18,65 @@
 #include "../common/chunkup_cuda_host.h"
 #include "../common/chunkup_surface.h"
 #include "../common/chunkup_sl_log.h"
+#include "../common/chunkup_noise_state.h"
 
 #include <cuda_runtime.h>
 #include <stdio.h>
+
+static int chunkup_cuda_check(cudaError_t err) {
+    if (err != cudaSuccess) {
+        fprintf(stderr, "[chunkup_cuda] CUDA error: %s\n", cudaGetErrorString(err));
+    }
+    return err == cudaSuccess ? 0 : -10;
+}
 
 static ChunkupCudaPinnedChunkBuffers g_chunkup_pinned_single = {0};
 static ChunkupCudaPinnedChunkBuffers g_chunkup_pinned_batch = {0};
 static int32_t* g_chunkup_d_chunk_xs = NULL;
 static int32_t* g_chunkup_d_chunk_zs = NULL;
 static int g_chunkup_d_chunk_coords_cap = 0;
+
+/* 设备端 wg_eval 世界（纯值结构，整体 memcpy；按 64 位 seed 缓存） */
+static ChunkupWgWorld* g_chunkup_d_wg_world = NULL;
+static uint64_t g_chunkup_d_wg_seed = UINT64_MAX;
+static int g_chunkup_d_wg_ok = 0;
+static int g_chunkup_wg_stack_set = 0;
+
+static int chunkup_cuda_ensure_wg_world(uint64_t world_seed) {
+    if (g_chunkup_d_wg_world && g_chunkup_d_wg_ok && g_chunkup_d_wg_seed == world_seed) {
+        return 0;
+    }
+
+    /* chunkup_wg_df 递归求值：帧 ~48-64B × 深度 ~25 ≈ 2KB，取 4KB 留余量。
+     * 过大会触发 cudaErrorLaunchOutOfResources（threads × stack 超 block 上限） */
+    if (!g_chunkup_wg_stack_set) {
+        if (chunkup_cuda_check(cudaDeviceSetLimit(cudaLimitStackSize, 4 * 1024)) != 0) {
+            return -10;
+        }
+        g_chunkup_wg_stack_set = 1;
+    }
+
+    if (!g_chunkup_d_wg_world) {
+        if (chunkup_cuda_check(cudaMalloc(&g_chunkup_d_wg_world, sizeof(ChunkupWgWorld))) != 0) {
+            g_chunkup_d_wg_world = NULL;
+            g_chunkup_d_wg_ok = 0;
+            return -10;
+        }
+    }
+
+    const ChunkupWgWorld* host_wg = chunkup_noise_wg_world(world_seed);
+    if (!host_wg || !host_wg->init_ok) {
+        g_chunkup_d_wg_ok = 0;
+        return -10;
+    }
+    if (chunkup_cuda_check(cudaMemcpy(g_chunkup_d_wg_world, host_wg, sizeof(ChunkupWgWorld), cudaMemcpyHostToDevice)) != 0) {
+        g_chunkup_d_wg_ok = 0;
+        return -10;
+    }
+    g_chunkup_d_wg_seed = world_seed;
+    g_chunkup_d_wg_ok = 1;
+    return 0;
+}
 
 static int chunkup_cuda_ensure_chunk_coords(int batch_count) {
     if (batch_count <= g_chunkup_d_chunk_coords_cap) {
@@ -58,7 +108,32 @@ static int chunkup_cuda_ensure_chunk_coords(int batch_count) {
     return 0;
 }
 
-#define CHUNKUP_CUDA_Y_TILE 4u
+/* 两阶段批量 NOISE_FILL 的全局角点密度缓冲：[batch][5 * y_corners_total * 5] */
+static float* g_chunkup_d_corner_density = NULL;
+static size_t g_chunkup_d_corner_cap = 0;
+
+static int chunkup_cuda_ensure_corner_buffer(int batch_count, int y_corners_total) {
+    const size_t floats = (size_t)batch_count * 5u * (size_t)y_corners_total * 5u;
+    if (g_chunkup_d_corner_density && g_chunkup_d_corner_cap >= floats) {
+        return 0;
+    }
+    if (g_chunkup_d_corner_density) {
+        cudaFree(g_chunkup_d_corner_density);
+        g_chunkup_d_corner_density = NULL;
+        g_chunkup_d_corner_cap = 0;
+    }
+    if (chunkup_cuda_check(cudaMalloc(&g_chunkup_d_corner_density, floats * sizeof(float))) != 0) {
+        return -10;
+    }
+    g_chunkup_d_corner_cap = floats;
+    return 0;
+}
+
+/* Y tile = 每 block 处理的 y 层数。必须满足：
+ *   blockDim(16*16*Y_TILE) × cudaLimitStackSize ≤ 设备每 block local memory 上限
+ * （Pascal ~512KB；递归 wg_eval 帧约 48-64B × 深度 ~25 ≈ 2KB，留 2 倍余量取 4KB）
+ * 256 线程 × 4KB = 1MB —— 实测 1024×16KB 会 cudaErrorLaunchOutOfResources */
+#define CHUNKUP_CUDA_Y_TILE 1u
 
 #ifdef __CUDACC__
 __device__ __forceinline__ uint32_t chunkup_cuda_block_index(int lx, int ly, int lz, uint32_t stride_y) {
@@ -67,8 +142,10 @@ __device__ __forceinline__ uint32_t chunkup_cuda_block_index(int lx, int ly, int
 
 /**
  * 密度 + Aquifer fluid：Y 维并行（block.z=4），提高 SM 占用。
+ * 密度源为 wg_eval final_density（vanilla 位精确，wg_compare 对拍 ALL EXACT）。
  */
 __global__ void chunkup_kernel_density_fill(
+    ChunkupWgWorld* wg,
     int base_x,
     int base_z,
     int min_y,
@@ -77,7 +154,6 @@ __global__ void chunkup_kernel_density_fill(
     float* density,
     uint8_t* fluid
 ) {
-    __shared__ ChunkupCellCache2D cell_cache;
     /* 角点密度缓存：5 X × 3 Y (覆盖 Y_TILE=4, CELL_H=8) × 5 Z = 75 floats */
     __shared__ float corner_density[5 * 3 * 5];
 
@@ -88,36 +164,25 @@ __global__ void chunkup_kernel_density_fill(
     const int tid = (int)(threadIdx.z * blockDim.y * blockDim.x + threadIdx.y * blockDim.x + threadIdx.x);
     const int block_threads = (int)(blockDim.x * blockDim.y * blockDim.z);
 
-    /* 1. 构建 2D 样本缓存 */
-    if (tid < 25) {
-        const int ci = tid / 5;
-        const int cj = tid % 5;
-        const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
-        const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
-        cell_cache.samples[ci][cj] = chunkup_router_sample_2d(&chunkup_device_bundle, wx, wz);
-    }
-    __syncthreads();
-
-    /* 2. 确定 Y 角点范围 */
+    /* 1. 确定 Y 角点范围 */
     const int y_tile_start = (int)blockIdx.z * (int)blockDim.z;
     const int y_tile_end = y_tile_start + (int)blockDim.z;
     const int ck_base = y_tile_start / (int)CHUNKUP_CELL_H;
     const int ck_last = ((y_tile_end > 0 ? y_tile_end - 1 : 0)) / (int)CHUNKUP_CELL_H;
     const int y_corners = ck_last - ck_base + 2;
 
-    /* 3. 合作构建角点密度缓存 */
+    /* 2. 合作构建角点密度缓存（wg_eval final_density，位精确） */
     const int total_corners = 5 * y_corners * 5;
     for (int i = tid; i < total_corners; i += block_threads) {
         const int ci = i / (y_corners * 5);
         const int rem = i % (y_corners * 5);
         const int ck = rem / 5;
         const int cj = rem % 5;
-        const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
-        const float wy = (float)(min_y + (ck_base + ck) * (int)CHUNKUP_CELL_H);
-        const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
-        const ChunkupRouterSample2D* s2d = &cell_cache.samples[ci][cj];
+        const int wx = base_x + ci * (int)CHUNKUP_CELL_W;
+        const int wy = min_y + (ck_base + ck) * (int)CHUNKUP_CELL_H;
+        const int wz = base_z + cj * (int)CHUNKUP_CELL_W;
         corner_density[ci * (y_corners * 5) + ck * 5 + cj] =
-            chunkup_router_initial_density(&chunkup_device_bundle, s2d, wx, wy, wz);
+            (float)chunkup_wg_eval_direct(wg, CHUNKUP_WG_DF_FINAL_DENSITY, wx, wy, wz);
     }
     __syncthreads();
 
@@ -126,23 +191,60 @@ __global__ void chunkup_kernel_density_fill(
     }
 
     const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
-    const float wx = (float)(base_x + lx);
-    const float wy = (float)(min_y + ly);
-    const float wz = (float)(base_z + lz);
+    const int wx = base_x + lx;
+    const int wy = min_y + ly;
+    const int wz = base_z + lz;
 
     const float d = chunkup_cell_interpolate_density(
         corner_density, ck_base, y_corners, lx, ly, lz
     );
     density[idx] = d;
     if (fluid) {
-        fluid[idx] = chunkup_router_aquifer_fluid(&chunkup_device_bundle, wx, wy, wz, d);
+        fluid[idx] = chunkup_wg_aquifer_fluid(wg, wx, wy, wz, (double)d);
     }
 }
 
 /**
+ * 阶段 1 —— 批量角点密度：整 chunk 每角点仅一次 wg_eval final_density。
+ * grid.z = batch_count * y_corners_total，block(5,5) = (ci, cj)。
+ * 相比逐 block 重建（Y_TILE=1 时 19200 次/chunk），整 chunk 只算 1225 次。
+ */
+__global__ void chunkup_kernel_corner_density_batch(
+    ChunkupWgWorld* wg,
+    const int32_t* chunk_xs,
+    const int32_t* chunk_zs,
+    int min_y,
+    int y_corners_total,
+    float* corner_density,
+    int batch_count
+) {
+    const int chunk_idx = (int)(blockIdx.z / (unsigned int)y_corners_total);
+    if (chunk_idx >= batch_count) {
+        return;
+    }
+    const int ck = (int)(blockIdx.z % (unsigned int)y_corners_total);
+    const int ci = (int)threadIdx.x; /* 0..4 */
+    const int cj = (int)threadIdx.y; /* 0..4 */
+
+    const int base_x = chunk_xs[chunk_idx] * (int)CHUNKUP_CHUNK_SIZE;
+    const int base_z = chunk_zs[chunk_idx] * (int)CHUNKUP_CHUNK_SIZE;
+    const int wx = base_x + ci * (int)CHUNKUP_CELL_W;
+    const int wy = min_y + ck * (int)CHUNKUP_CELL_H;
+    const int wz = base_z + cj * (int)CHUNKUP_CELL_W;
+
+    float* dst = corner_density + (size_t)chunk_idx * (size_t)(5 * y_corners_total * 5);
+    dst[(size_t)ci * (size_t)(y_corners_total * 5) + (size_t)ck * 5u + (size_t)cj] =
+        (float)chunkup_wg_eval_direct(wg, CHUNKUP_WG_DF_FINAL_DENSITY, wx, wy, wz);
+}
+
+/**
  * 批量 NOISE_FILL：grid.z = z_slices * batch_count，Y 维并行。
+ * 密度源为 wg_eval final_density（vanilla 位精确）。
  */
 __global__ void chunkup_kernel_density_fill_batch(
+    ChunkupWgWorld* wg,
+    const float* corner_src,
+    int y_corners_total,
     const int32_t* chunk_xs,
     const int32_t* chunk_zs,
     int min_y,
@@ -159,7 +261,6 @@ __global__ void chunkup_kernel_density_fill_batch(
         return;
     }
 
-    __shared__ ChunkupCellCache2D cell_cache;
     __shared__ float corner_density[5 * 3 * 5];
 
     const int base_x = chunk_xs[chunk_idx] * (int)CHUNKUP_CHUNK_SIZE;
@@ -174,16 +275,7 @@ __global__ void chunkup_kernel_density_fill_batch(
     const int tid = (int)(threadIdx.z * blockDim.y * blockDim.x + threadIdx.y * blockDim.x + threadIdx.x);
     const int block_threads = (int)(blockDim.x * blockDim.y * blockDim.z);
 
-    if (tid < 25) {
-        const int ci = tid / 5;
-        const int cj = tid % 5;
-        const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
-        const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
-        cell_cache.samples[ci][cj] = chunkup_router_sample_2d(&chunkup_device_bundle, wx, wz);
-    }
-    __syncthreads();
-
-    /* Y 角点范围 + 合作构建角点密度缓存 */
+    /* Y 角点范围 + 合作载入角点密度缓存（阶段 1 已在全局缓冲算好，无噪声求值） */
     const int y_tile_start = (int)((blockIdx.z % (unsigned int)z_slices) * blockDim.z);
     const int y_tile_end = y_tile_start + (int)blockDim.z;
     const int ck_base = y_tile_start / (int)CHUNKUP_CELL_H;
@@ -191,17 +283,16 @@ __global__ void chunkup_kernel_density_fill_batch(
     const int y_corners = ck_last - ck_base + 2;
 
     const int total_corners = 5 * y_corners * 5;
+    const float* src = corner_src +
+        (size_t)chunk_idx * (size_t)(5 * y_corners_total * 5) +
+        (size_t)(ck_base * 5);
     for (int i = tid; i < total_corners; i += block_threads) {
         const int ci = i / (y_corners * 5);
         const int rem = i % (y_corners * 5);
         const int ck = rem / 5;
         const int cj = rem % 5;
-        const float wx = (float)(base_x + ci * (int)CHUNKUP_CELL_W);
-        const float wy = (float)(min_y + (ck_base + ck) * (int)CHUNKUP_CELL_H);
-        const float wz = (float)(base_z + cj * (int)CHUNKUP_CELL_W);
-        const ChunkupRouterSample2D* s2d = &cell_cache.samples[ci][cj];
         corner_density[ci * (y_corners * 5) + ck * 5 + cj] =
-            chunkup_router_initial_density(&chunkup_device_bundle, s2d, wx, wy, wz);
+            src[(size_t)ci * (size_t)(y_corners_total * 5) + (size_t)ck * 5u + (size_t)cj];
     }
     __syncthreads();
 
@@ -210,16 +301,16 @@ __global__ void chunkup_kernel_density_fill_batch(
     }
 
     const uint32_t idx = chunkup_cuda_block_index(lx, ly, lz, stride_y);
-    const float wx = (float)(base_x + lx);
-    const float wy = (float)(min_y + ly);
-    const float wz = (float)(base_z + lz);
+    const int wx = base_x + lx;
+    const int wy = min_y + ly;
+    const int wz = base_z + lz;
 
     const float d = chunkup_cell_interpolate_density(
         corner_density, ck_base, y_corners, lx, ly, lz
     );
     chunk_density[idx] = d;
     if (chunk_fluid) {
-        chunk_fluid[idx] = chunkup_router_aquifer_fluid(&chunkup_device_bundle, wx, wy, wz, d);
+        chunk_fluid[idx] = chunkup_wg_aquifer_fluid(wg, wx, wy, wz, (double)d);
     }
 }
 
@@ -439,10 +530,6 @@ __global__ void chunkup_kernel_face_cull_batch(
 
 #include <string.h>
 
-static int chunkup_cuda_check(cudaError_t err) {
-    return err == cudaSuccess ? 0 : -10;
-}
-
 static void chunkup_cuda_free_buffers(
     float* d_density,
     uint8_t* d_fluid,
@@ -547,6 +634,13 @@ extern "C" CHUNKUP_API int chunkup_cuda_kernel_dispatch(
             return -10;
         }
 
+        if (chunkup_cuda_ensure_wg_world(job->world_seed) != 0) {
+            if (!use_pinned_noise) {
+                chunkup_cuda_free_buffers(d_density, d_fluid, d_skylight, d_blocklight, d_face_mask);
+            }
+            return -10;
+        }
+
         const dim3 fill_block(16, 16, CHUNKUP_CUDA_Y_TILE);
         const dim3 fill_grid(
             1,
@@ -554,6 +648,7 @@ extern "C" CHUNKUP_API int chunkup_cuda_kernel_dispatch(
             (unsigned int)((job->height + (int)CHUNKUP_CUDA_Y_TILE - 1) / (int)CHUNKUP_CUDA_Y_TILE)
         );
         chunkup_kernel_density_fill<<<fill_grid, fill_block>>>(
+            g_chunkup_d_wg_world,
             base_x,
             base_z,
             job->min_y,
@@ -919,7 +1014,13 @@ extern "C" CHUNKUP_API int chunkup_cuda_density_fill_batch(
         return -10;
     }
 
+    if (chunkup_cuda_ensure_wg_world(template_job->world_seed) != 0) {
+        return -10;
+    }
+
     const int z_slices = (template_job->height + (int)CHUNKUP_CUDA_Y_TILE - 1) / (int)CHUNKUP_CUDA_Y_TILE;
+    const int y_corners_total =
+        (template_job->height + (int)CHUNKUP_CELL_H - 1) / (int)CHUNKUP_CELL_H + 1;
     const dim3 block(16, 16, CHUNKUP_CUDA_Y_TILE);
     const dim3 grid(1, 1, (unsigned int)z_slices * (unsigned int)batch_count);
 
@@ -938,7 +1039,30 @@ extern "C" CHUNKUP_API int chunkup_cuda_density_fill_batch(
     );
     CHUNKUP_SL_INFO_START("CUDA Density Batch Module", "Launching CUDA density fill batch kernel", params);
 
+    /* 阶段 1：整 chunk 角点密度（1225 次/chunk，消除逐 block 重建的 15.7x 冗余） */
+    if (chunkup_cuda_ensure_corner_buffer(batch_count, y_corners_total) != 0) {
+        return -10;
+    }
+    const dim3 corner_block(5, 5, 1);
+    const dim3 corner_grid(1, 1, (unsigned int)batch_count * (unsigned int)y_corners_total);
+    chunkup_kernel_corner_density_batch<<<corner_grid, corner_block>>>(
+        g_chunkup_d_wg_world,
+        g_chunkup_d_chunk_xs,
+        g_chunkup_d_chunk_zs,
+        template_job->min_y,
+        y_corners_total,
+        g_chunkup_d_corner_density,
+        batch_count
+    );
+    if (chunkup_cuda_check(cudaGetLastError()) != 0) {
+        return -10;
+    }
+
+    /* 阶段 2：三线性插值 + aquifer（同 stream 顺序执行，无需中间同步） */
     chunkup_kernel_density_fill_batch<<<grid, block>>>(
+        g_chunkup_d_wg_world,
+        g_chunkup_d_corner_density,
+        y_corners_total,
         g_chunkup_d_chunk_xs,
         g_chunkup_d_chunk_zs,
         template_job->min_y,

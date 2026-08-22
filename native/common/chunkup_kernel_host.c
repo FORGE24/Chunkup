@@ -43,7 +43,7 @@ static void chunkup_op_noise_fill(const ChunkupKernelJob* job, ChunkupKernelBuff
     const int base_z = job->chunk_z * (int)CHUNKUP_CHUNK_SIZE;
 
     chunkup_cell_fill_chunk(
-        &chunkup_active_bundle,
+        chunkup_noise_wg_world(job->world_seed),
         base_x,
         base_z,
         job->min_y,

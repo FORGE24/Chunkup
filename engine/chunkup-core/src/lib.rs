@@ -131,7 +131,7 @@ pub fn generate_chunk_density(
     }
 
     let seed = mix_world_seed(world_seed);
-    let job = KernelJob::for_density_fill(chunk_x, chunk_z, min_y, height, seed);
+    let job = KernelJob::for_density_fill(chunk_x, chunk_z, min_y, height, seed, world_seed as u64);
 
     let Ok(slot) = ENGINE.lock() else {
         return None;
@@ -169,7 +169,7 @@ pub fn generate_chunk_density_batch(
     }
 
     let seed = mix_world_seed(world_seed);
-    let template_job = KernelJob::for_density_fill(0, 0, min_y, height, seed);
+    let template_job = KernelJob::for_density_fill(0, 0, min_y, height, seed, world_seed as u64);
     let batch_count = chunk_coords.len() as i32;
     let blocks_per_chunk = BLOCKS_PER_SECTION as usize * height as usize;
     let mut host_density = vec![0f32; blocks_per_chunk * chunk_coords.len()];

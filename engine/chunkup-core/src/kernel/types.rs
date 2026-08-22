@@ -50,6 +50,9 @@ pub struct KernelJob {
     pub seed: u32,
     pub op_mask: u32,
     pub stage: u32,
+    /// 完整 64 位世界种子：wg_eval 位精确噪声派生需要（vanilla RandomState 用 64 位）。
+    /// 旧 seed 为 32 位折叠值，仅供 legacy LCG bundle 路径。
+    pub world_seed: u64,
 }
 
 impl KernelJob {
@@ -63,6 +66,7 @@ impl KernelJob {
             seed,
             op_mask: unsafe { chunkup_kernel_ops_for_stage(stage_u) },
             stage: stage_u,
+            world_seed: 0,
         }
     }
 
@@ -72,6 +76,7 @@ impl KernelJob {
         min_y: i32,
         height: i32,
         seed: u32,
+        world_seed: u64,
     ) -> Self {
         Self {
             chunk_x,
@@ -81,6 +86,7 @@ impl KernelJob {
             seed,
             op_mask: KernelOp::NoiseFill as u32,
             stage: Stage::NoiseFill as u32,
+            world_seed,
         }
     }
 
@@ -99,6 +105,7 @@ impl KernelJob {
             seed,
             op_mask: KernelOp::SurfaceThin as u32,
             stage: Stage::Surface as u32,
+            world_seed: 0,
         }
     }
 }
