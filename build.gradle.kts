@@ -93,8 +93,9 @@ dependencies {
     modImplementation("net.fabricmc:fabric-language-kotlin:${providers.gradleProperty("fabric_kotlin_version").get()}")
 
 	// Sodium：compileOnly 用于 Mixin 类型；runClient 可选加载
-	modCompileOnly("maven.modrinth:sodium:mc1.20.1-0.5.11")
-	modRuntimeOnly("maven.modrinth:sodium:mc1.20.1-0.5.11")
+	// 代码已适配 0.8 API（net.caffeinemc.mods.sodium.*），PR #9 漏升依赖坐标
+	modCompileOnly("maven.modrinth:sodium:mc1.21.1-0.8.12-fabric")
+	modRuntimeOnly("maven.modrinth:sodium:mc1.21.1-0.8.12-fabric")
 
 	// Mod Menu 配置入口（compileOnly API，dev 环境 runtime 加载）
 	modCompileOnly("com.terraformersmc:modmenu:7.2.2")
