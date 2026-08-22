@@ -61,7 +61,8 @@ loom {
 			// Phase 1 client baseline + GPU world gen (CUDA→OpenCL→CPU)
 			// gpuWorldGen=true: GPU 密度生成 (wg_compare 已验证 EXACT)，vanilla surface 递归保留
 			// gpuSurfaceBuild=false: 关闭 GPU 薄层，surface 走 vanilla 100% 准确
-			vmArg("-Dchunkup.gpuWorldGen=true")
+			// A/B 隔离：-PchunkupGpuWorldGen=false 走纯 vanilla 生成，用于区分卡顿来自生成线路还是客户端
+			vmArg("-Dchunkup.gpuWorldGen=${propOrDefault("chunkupGpuWorldGen", "true")}")
 			vmArg("-Dchunkup.gpuSurfaceBuild=false")
 			// 密度批量：8/20 调试期 coalesceMs=0/minFlush=1 退化为单 chunk 往返（实测 Count=1×618 批，
 			// 每批 24-42ms），恢复批量——8ms 聚合窗、16ms 硬上限、攒够 8 个提前发
