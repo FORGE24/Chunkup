@@ -98,8 +98,9 @@ dependencies {
 	modRuntimeOnly("maven.modrinth:sodium:mc1.21.1-0.8.12-fabric")
 
 	// Mod Menu 配置入口（compileOnly API，dev 环境 runtime 加载）
-	modCompileOnly("com.terraformersmc:modmenu:7.2.2")
-	modRuntimeOnly("com.terraformersmc:modmenu:7.2.2")
+	// 1.21.1 对应 11.0.x；旧 7.2.2（1.20.1）在运行期炸 ResourceLocation 私有构造器
+	modCompileOnly("com.terraformersmc:modmenu:11.0.4")
+	modRuntimeOnly("com.terraformersmc:modmenu:11.0.4")
 }
 
 tasks.processResources {
