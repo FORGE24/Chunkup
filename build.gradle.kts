@@ -11,7 +11,8 @@ plugins {
 version = providers.gradleProperty("mod_version").get()
 group = providers.gradleProperty("maven_group").get()
 
-val lwjglVersion = "3.3.1"
+// MC 1.21.1 manifest 全线 LWJGL 3.3.3（含新增 lwjgl-freetype；该模块 3.3.2 才发布，3.3.1 不存在）
+val lwjglVersion = "3.3.3"
 
 configurations.configureEach {
 	resolutionStrategy.eachDependency {
@@ -54,6 +55,9 @@ loom {
 
 			vmArg("-Djava.library.path=$nativeDir")
 			vmArg("-Dchunkup.native.dir=$nativeDir")
+			// 15G 物理内存：显式压堆上限，给 native 侧（CUDA 上下文/引擎缓存/JIT）留余量，
+			// 防 native malloc 耗尽（hs_err_pid26324: C2 编译线程 Chunk::new OOM）
+			vmArg("-Xmx3G")
 			// Phase 1 client baseline + GPU world gen (CUDA→OpenCL→CPU)
 			// gpuWorldGen=true: GPU 密度生成 (wg_compare 已验证 EXACT)，vanilla surface 递归保留
 			// gpuSurfaceBuild=false: 关闭 GPU 薄层，surface 走 vanilla 100% 准确
