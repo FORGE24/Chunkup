@@ -19,12 +19,17 @@ import java.nio.file.StandardCopyOption
 object NativeLibraryLoader {
     private val LOGGER = LoggerFactory.getLogger("${Chunkup.MOD_ID}.native")
 
-    private val LIBRARY_BASE_NAMES = listOf(
-        "chunkup_cuda",
-        "chunkup_opencl",
-        "chunkup_core",
-        "chunkup_settings",
-    )
+    private fun gpuLibraryBaseNames(): List<String> {
+        val allowCuda = System.getProperty("chunkup.allowCuda", System.getenv("CHUNKUP_ALLOW_CUDA") ?: "")
+            .equals("1", ignoreCase = true) ||
+            System.getProperty("chunkup.allowCuda", "").equals("true", ignoreCase = true)
+        val isLinux = System.getProperty("os.name").lowercase().contains("linux")
+        return if (isLinux && !allowCuda) {
+            listOf("chunkup_opencl", "chunkup_core", "chunkup_settings")
+        } else {
+            listOf("chunkup_cuda", "chunkup_opencl", "chunkup_core", "chunkup_settings")
+        }
+    }
 
     /** 实际加载 native 库的目录，供 Rust dlopen GPU 后端时使用。 */
     @Volatile
@@ -85,10 +90,11 @@ object NativeLibraryLoader {
     private fun prependPathEntry(entry: String) {
         val key = "PATH"
         val existing = System.getenv(key) ?: ""
-        if (existing.split(';').any { it.equals(entry, ignoreCase = true) }) {
+        val separator = System.getProperty("path.separator") ?: ":"
+        if (existing.split(separator).any { it.equals(entry, ignoreCase = true) }) {
             return
         }
-        val updated = if (existing.isEmpty()) entry else "$entry;$existing"
+        val updated = if (existing.isEmpty()) entry else "$entry$separator$existing"
         try {
             val envField = Class.forName("java.lang.ProcessEnvironment")
                 .getDeclaredField("theUnmodifiableEnvironment")
@@ -150,7 +156,7 @@ object NativeLibraryLoader {
         nativeLibraryDir = dir
         prepareNativeDirectory(dir)
         preloadWindowsDependencies(dir)
-        for (baseName in LIBRARY_BASE_NAMES) {
+        for (baseName in gpuLibraryBaseNames()) {
             val fileName = System.mapLibraryName(baseName)
             val path = dir.resolve(fileName)
             if (!Files.isRegularFile(path)) {
@@ -213,7 +219,7 @@ object NativeLibraryLoader {
             System.loadLibrary(baseName)
             LOGGER.info("Loaded {} from java.library.path", baseName)
         } catch (e: UnsatisfiedLinkError) {
-            LOGGER.warn("Optional GPU library {} not loaded from java.library.path: {}",
+            LOGGER.info("Optional GPU library {} not on java.library.path: {}",
                 baseName, e.message)
         }
     }
@@ -241,7 +247,7 @@ object NativeLibraryLoader {
         }
 
         if (extracted == 0) {
-            for (baseName in LIBRARY_BASE_NAMES) {
+            for (baseName in gpuLibraryBaseNames()) {
                 val fileName = System.mapLibraryName(baseName)
                 val resourcePath = "$resourceRoot/$fileName"
                 val stream = classLoader.getResourceAsStream(resourcePath) ?: continue

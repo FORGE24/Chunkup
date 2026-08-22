@@ -1,6 +1,7 @@
 #include "chunkup_batch.h"
 #include "chunkup_kernel.h"
 
+#include <stddef.h>
 #include <string.h>
 
 int chunkup_kernel_dispatch_cpu_batch(

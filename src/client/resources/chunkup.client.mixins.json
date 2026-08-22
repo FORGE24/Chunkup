@@ -1,7 +1,7 @@
 {
 	"required": true,
 	"package": "cn.sanrolnet.chunkup.client.mixin",
-	"compatibilityLevel": "JAVA_17",
+	"compatibilityLevel": "JAVA_21",
 	"plugin": "cn.sanrolnet.chunkup.client.mixin.ChunkupClientMixinPlugin",
 	"client": [
 		"DebugScreenOverlayMixin",
@@ -10,7 +10,6 @@
 		"sodium.ChunkBuilderMeshingTaskMixin",
 		"sodium.RenderSectionManagerAccess",
 		"sodium.RenderSectionManagerMixin",
-		"sodium.VisibleChunkCollectorMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

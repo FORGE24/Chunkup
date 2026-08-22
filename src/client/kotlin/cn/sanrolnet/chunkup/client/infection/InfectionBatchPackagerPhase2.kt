@@ -1,6 +1,8 @@
 package cn.sanrolnet.chunkup.client.infection
 
 import cn.sanrolnet.chunkup.client.bridge.ClientEngineBridge
+
+import com.mojang.blaze3d.pipeline.RenderCall
 import com.mojang.blaze3d.systems.RenderSystem
 import org.lwjgl.opengl.GL43
 import org.lwjgl.system.MemoryStack
@@ -69,7 +71,7 @@ object InfectionBatchPackagerPhase2 {
 
         val cmds = IntArray(sectionCount * 4)
 
-        RenderSystem.recordRenderCall(Runnable {
+        RenderSystem.recordRenderCall(RenderCall {
             try {
                 val buffers = IntArray(2)
                 GL43.glGenBuffers(buffers)
@@ -87,7 +89,7 @@ object InfectionBatchPackagerPhase2 {
                     status.failed = true
                     ClientEngineBridge.interopFreeBlockStates(devicePtr)
                     status.ready.set(true)
-                    return@Runnable
+                    return@RenderCall
                 }
 
                 val rc = ClientEngineBridge.interopMeshToVboDevice(
@@ -102,7 +104,7 @@ object InfectionBatchPackagerPhase2 {
                     GL43.glDeleteBuffers(intArrayOf(status.vboId, status.indirectBufferId))
                     status.failed = true
                     status.ready.set(true)
-                    return@Runnable
+                    return@RenderCall
                 }
 
                 GL43.glBindBuffer(GL43.GL_DRAW_INDIRECT_BUFFER, status.indirectBufferId)
@@ -136,7 +138,7 @@ object InfectionBatchPackagerPhase2 {
             return
         }
         if (status.vertexCount == 0 || status.vboId == 0) return
-        RenderSystem.recordRenderCall(Runnable {
+        RenderSystem.recordRenderCall(RenderCall {
             GL43.glBindBuffer(GL43.GL_ARRAY_BUFFER, status.vboId)
             GL43.glBindBuffer(GL43.GL_DRAW_INDIRECT_BUFFER, status.indirectBufferId)
             GL43.glMultiDrawArraysIndirect(GL43.GL_TRIANGLES, 0L, status.sectionCount, 0)
@@ -147,7 +149,7 @@ object InfectionBatchPackagerPhase2 {
 
     fun release(status: GpuBatchStatus) {
         if (status.vboId == 0 && status.indirectBufferId == 0) return
-        RenderSystem.recordRenderCall(Runnable {
+        RenderSystem.recordRenderCall(RenderCall {
             if (status.vboId != 0) ClientEngineBridge.interopGlUnregister(status.vboId)
             GL43.glDeleteBuffers(intArrayOf(status.vboId, status.indirectBufferId))
             status.vboId = 0

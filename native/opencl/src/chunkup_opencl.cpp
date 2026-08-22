@@ -12,11 +12,16 @@
 #include <CL/cl.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#if defined(__linux__) || defined(__APPLE__)
+#include <dlfcn.h>
+#endif
 
 namespace {
 
@@ -36,6 +41,9 @@ struct OpenClState {
 OpenClState g_state;
 
 std::string read_text_file(const char* path) {
+    if (!path || !path[0]) {
+        return {};
+    }
     std::ifstream file(path);
     if (!file.is_open()) {
         return {};
@@ -45,23 +53,131 @@ std::string read_text_file(const char* path) {
     return ss.str();
 }
 
-std::string read_kernel_source() {
-#ifdef CHUNKUP_OPENCL_ROUTER_PATH
-    const std::string router = read_text_file(CHUNKUP_OPENCL_ROUTER_PATH);
-#else
-    const std::string router = read_text_file("native/opencl/kernels/chunkup_router_codegen.clh");
-#endif
+std::string dirname_of(const std::string& path) {
+    const auto pos = path.find_last_of("/\\");
+    if (pos == std::string::npos) {
+        return ".";
+    }
+    if (pos == 0) {
+        return "/";
+    }
+    return path.substr(0, pos);
+}
 
+std::string join_path(const std::string& dir, const char* file) {
+    if (dir.empty()) {
+        return file;
+    }
+    if (dir.back() == '/' || dir.back() == '\\') {
+        return dir + file;
+    }
+#ifdef _WIN32
+    return dir + "\\" + file;
+#else
+    return dir + "/" + file;
+#endif
+}
+
+std::string library_directory() {
+#if defined(__linux__) || defined(__APPLE__)
+    Dl_info info {};
+    if (dladdr(reinterpret_cast<void*>(chunkup_opencl_is_available), &info) && info.dli_fname) {
+        return dirname_of(info.dli_fname);
+    }
+#endif
+    return {};
+}
+
+std::string first_readable(const std::vector<std::string>& candidates) {
+    for (const auto& path : candidates) {
+        if (path.empty()) {
+            continue;
+        }
+        std::ifstream file(path);
+        if (file.good()) {
+            return path;
+        }
+    }
+    return {};
+}
+
+std::vector<std::string> kernel_search_dirs() {
+    std::vector<std::string> dirs;
+    if (const char* env_dir = std::getenv("CHUNKUP_OPENCL_KERNEL_DIR")) {
+        dirs.emplace_back(env_dir);
+    }
+    if (const char* native_dir = std::getenv("CHUNKUP_NATIVE_DIR")) {
+        dirs.emplace_back(native_dir);
+    }
+    const std::string so_dir = library_directory();
+    if (!so_dir.empty()) {
+        dirs.push_back(so_dir);
+    }
 #ifdef CHUNKUP_OPENCL_KERNEL_PATH
-    const std::string kernel = read_text_file(CHUNKUP_OPENCL_KERNEL_PATH);
-#else
-    const std::string kernel = read_text_file("native/opencl/kernels/chunkup_kernel.cl");
+    dirs.push_back(dirname_of(CHUNKUP_OPENCL_KERNEL_PATH));
+#endif
+    dirs.emplace_back("native/opencl/kernels");
+    dirs.emplace_back(".");
+    return dirs;
+}
+
+std::string read_kernel_source() {
+    const auto dirs = kernel_search_dirs();
+    std::vector<std::string> kernel_paths;
+    std::vector<std::string> router_paths;
+    for (const auto& dir : dirs) {
+        kernel_paths.push_back(join_path(dir, "chunkup_kernel.cl"));
+        router_paths.push_back(join_path(dir, "chunkup_router_codegen.clh"));
+    }
+#ifdef CHUNKUP_OPENCL_KERNEL_PATH
+    kernel_paths.insert(kernel_paths.begin(), CHUNKUP_OPENCL_KERNEL_PATH);
+#endif
+#ifdef CHUNKUP_OPENCL_ROUTER_PATH
+    router_paths.insert(router_paths.begin(), CHUNKUP_OPENCL_ROUTER_PATH);
 #endif
 
+    const std::string kernel_path = first_readable(kernel_paths);
+    const std::string router_path = first_readable(router_paths);
+    const std::string kernel = read_text_file(kernel_path.c_str());
+    const std::string router = read_text_file(router_path.c_str());
     if (router.empty() || kernel.empty()) {
+        fprintf(
+            stderr,
+            "chunkup_opencl: kernel source missing (kernel=%s router=%s)\n",
+            kernel_path.empty() ? "(none)" : kernel_path.c_str(),
+            router_path.empty() ? "(none)" : router_path.c_str()
+        );
         return {};
     }
     return router + "\n" + kernel;
+}
+
+bool pick_opencl_gpu(cl_platform_id* out_platform, cl_device_id* out_device) {
+    cl_uint platform_count = 0;
+    if (clGetPlatformIDs(0, nullptr, &platform_count) != CL_SUCCESS || platform_count == 0) {
+        return false;
+    }
+    std::vector<cl_platform_id> platforms(platform_count);
+    if (clGetPlatformIDs(platform_count, platforms.data(), nullptr) != CL_SUCCESS) {
+        return false;
+    }
+
+    const cl_device_type preferred[] = {
+        CL_DEVICE_TYPE_GPU,
+        CL_DEVICE_TYPE_ACCELERATOR,
+        CL_DEVICE_TYPE_DEFAULT,
+    };
+    for (cl_device_type type : preferred) {
+        for (cl_platform_id platform : platforms) {
+            cl_device_id device = nullptr;
+            if (clGetDeviceIDs(platform, type, 1, &device, nullptr) == CL_SUCCESS && device) {
+                *out_platform = platform;
+                *out_device = device;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool create_kernel(cl_kernel* out, const char* name) {
@@ -77,10 +193,8 @@ bool ensure_opencl() {
 
     cl_platform_id platform = nullptr;
     cl_device_id device = nullptr;
-    if (clGetPlatformIDs(1, &platform, nullptr) != CL_SUCCESS) {
-        return false;
-    }
-    if (clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, nullptr) != CL_SUCCESS) {
+    if (!pick_opencl_gpu(&platform, &device)) {
+        fprintf(stderr, "chunkup_opencl: no OpenCL GPU/accelerator device found\n");
         return false;
     }
 

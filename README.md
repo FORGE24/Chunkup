@@ -1,6 +1,8 @@
 # Chunkup
 
-Chunkup 是一个面向 Minecraft 1.20.1（Fabric）的 GPU 区块生成优化模组。  
+Chunkup 是一个面向 Minecraft 1.20.1（Fabric）的 GPU 区块生成优化模组。
+
+> **支持作者**：[爱发电 - sanrolmc](https://afdian.com/a/sanrolmc)  
 它将区块噪声密度计算迁移到 CUDA / OpenCL，并通过批处理与缓存机制减少 CPU 端生成压力，在探索新区块时获得更稳定的吞吐表现。
 
 ## 核心能力

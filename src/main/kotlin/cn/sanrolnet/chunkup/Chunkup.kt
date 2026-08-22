@@ -22,5 +22,5 @@ object Chunkup : ModInitializer {
 	}
 
 	fun id(path: String): ResourceLocation
-		= ResourceLocation(MOD_ID, path)
+		= ResourceLocation.fromNamespaceAndPath(MOD_ID, path)
 }

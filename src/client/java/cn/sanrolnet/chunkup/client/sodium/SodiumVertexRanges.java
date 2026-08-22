@@ -1,16 +1,12 @@
 package cn.sanrolnet.chunkup.client.sodium;
-
-import me.jellysquid.mods.sodium.client.gl.util.VertexRange;
-import me.jellysquid.mods.sodium.client.model.quad.properties.ModelQuadFacing;
-
+import net.caffeinemc.mods.sodium.client.model.quad.properties.ModelQuadFacing;
 final class SodiumVertexRanges {
 	private SodiumVertexRanges() {
 	}
-
-	static VertexRange[] fromSegmentPairs(int[] segments) {
-		VertexRange[] ranges = new VertexRange[ModelQuadFacing.COUNT];
+	static int[] fromSegmentPairs(int[] segments) {
+		int[] result = new int[ModelQuadFacing.COUNT * 2];
 		int vertexStart = 0;
-
+		int outIdx = 0;
 		for (int i = 0; i + 1 < segments.length; i += 2) {
 			int count = segments[i];
 			if (count <= 0) {
@@ -20,10 +16,10 @@ final class SodiumVertexRanges {
 			if (facing < 0 || facing >= ModelQuadFacing.COUNT) {
 				continue;
 			}
-			ranges[facing] = new VertexRange(vertexStart, count);
+			result[outIdx++] = count;
+			result[outIdx++] = facing;
 			vertexStart += count;
 		}
-
-		return ranges;
+		return result;
 	}
 }

@@ -25,7 +25,9 @@ pub struct EngineContext {
 }
 
 impl EngineContext {
-    /// 按优先级探测并绑定后端：CUDA → OpenCL → CPU/SIMD。
+    /// 按优先级探测并绑定后端。
+    /// Windows：CUDA → OpenCL → CPU/SIMD。
+    /// Linux：OpenCL → CPU/SIMD（CUDA 仅 CHUNKUP_ALLOW_CUDA=1）。
     pub fn bootstrap() -> Self {
         let backend = if CudaBackend::probe() {
             BackendKind::Cuda
