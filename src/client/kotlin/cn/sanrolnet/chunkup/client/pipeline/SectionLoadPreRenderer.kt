@@ -1,28 +1,19 @@
 package cn.sanrolnet.chunkup.client.pipeline
-
 import cn.sanrolnet.chunkup.ChunkupConfig
 import cn.sanrolnet.chunkup.client.infection.InfectionCoordinator
 import cn.sanrolnet.chunkup.client.mixin.sodium.RenderSectionManagerAccess
 import cn.sanrolnet.chunkup.client.sodium.LayeredSectionPolicy
 import cn.sanrolnet.chunkup.client.sodium.SodiumIntegration
 import cn.sanrolnet.chunkup.render.SectionKey
-import me.jellysquid.mods.sodium.client.render.chunk.compile.executor.ChunkJobCollector
+import net.caffeinemc.mods.sodium.client.render.chunk.compile.executor.ChunkJobCollector
 import net.minecraft.client.Minecraft
 import net.minecraft.core.SectionPos
 import net.minecraft.world.entity.player.Player
 import java.util.PriorityQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
-
-/**
- * 区块加载时预渲染：在 Sodium 可见性遍历之前，按与玩家的距离优先提交 section mesh。
- *
- * - `chunkup.preRenderOnLoad` — 总开关（默认 true）
- * - `chunkup.preRender.budget` — 每帧最多提交的 section 数（默认 8）
- */
 object SectionLoadPreRenderer {
 	private const val MAX_PENDING = 4096
-
 	private data class Entry(
 		val sectionX: Int,
 		val sectionY: Int,
@@ -32,20 +23,16 @@ object SectionLoadPreRenderer {
 		override fun compareTo(other: Entry): Int =
 			distanceSq.compareTo(other.distanceSq)
 	}
-
 	private val pending = PriorityQueue<Entry>()
 	private val pendingKeys = ConcurrentHashMap.newKeySet<Long>()
 	private val lock = Any()
-
 	private val queuedTotal = AtomicLong(0)
 	private val submittedTotal = AtomicLong(0)
 	private val skippedTotal = AtomicLong(0)
 	private val deferredTotal = AtomicLong(0)
-
 	@JvmStatic
 	val enabled: Boolean
 		get() = ChunkupConfig.preRenderOnLoad && SodiumIntegration.isLoaded
-
 	@JvmStatic
 	fun onSectionAdded(sectionX: Int, sectionY: Int, sectionZ: Int) {
 		if (!enabled) {
@@ -55,17 +42,14 @@ object SectionLoadPreRenderer {
 			skippedTotal.incrementAndGet()
 			return
 		}
-
 		val originX = sectionX shl 4
 		val originZ = sectionZ shl 4
 		if (!InfectionCoordinator.allowSodiumForSection(originX, originZ)) {
 			skippedTotal.incrementAndGet()
 			return
 		}
-
 		val player = Minecraft.getInstance().player ?: return
 		val distanceSq = distanceSqToSection(player, sectionX, sectionY, sectionZ)
-
 		val key = SectionKey(sectionX, sectionY, sectionZ).asLong
 		synchronized(lock) {
 			if (!pendingKeys.add(key)) {
@@ -80,76 +64,63 @@ object SectionLoadPreRenderer {
 		}
 		queuedTotal.incrementAndGet()
 	}
-
 	@JvmStatic
 	fun flush(manager: RenderSectionManagerAccess, collector: ChunkJobCollector) {
-		if (!enabled || !collector.canOffer()) {
+		if (!enabled || !collector.hasBudgetRemaining()) {
 			return
 		}
-
 		refreshPriorities()
-
 		val frame = manager.chunkupGetLastUpdatedFrame()
 		val sections = manager.chunkupGetSectionByPosition()
 		val builder = manager.chunkupGetBuilder()
-
-		// 每帧只扫描当前队列一轮；忙碌/未解锁的条目延后到下一帧，避免 requeue+poll 死循环。
 		val batch = drainPending()
 		if (batch.isEmpty()) {
 			return
 		}
-
 		val deferred = ArrayList<Entry>(batch.size.coerceAtMost(64))
 		for (entry in batch) {
-			if (!collector.canOffer()) {
+			if (!collector.hasBudgetRemaining()) {
 				deferred.add(entry)
 				continue
 			}
-
 			if (!LayeredSectionPolicy.allowSectionMesh(entry.sectionY)) {
 				deferred.add(entry)
 				deferredTotal.incrementAndGet()
 				continue
 			}
-
 			val section = sections.get(SectionPos.asLong(entry.sectionX, entry.sectionY, entry.sectionZ))
 			if (section == null || section.isDisposed) {
 				skippedTotal.incrementAndGet()
 				continue
 			}
-			if (section.buildCancellationToken != null) {
+			if (section.getRunningJob() != null) {
 				deferred.add(entry)
 				deferredTotal.incrementAndGet()
 				continue
 			}
-			if (section.pendingUpdate == null && section.isBuilt) {
+			if (section.getPendingUpdate() == 0 && section.isBuilt) {
 				continue
 			}
-
 			val task = manager.chunkupCreateRebuildTask(section, frame)
 			if (task == null) {
 				skippedTotal.incrementAndGet()
 				continue
 			}
-
-			val job = builder.scheduleTask(task, true, collector::onJobFinished)
+			val job = builder.scheduleTask(task, true, collector::onJobFinished, false)
 			collector.addSubmittedJob(job)
-			section.buildCancellationToken = job
-			section.lastSubmittedFrame = frame
-			section.pendingUpdate = null
+			section.setRunningJob(job)
+			section.setLastSubmittedFrame(frame)
+			section.clearPendingUpdate()
 			submittedTotal.incrementAndGet()
 		}
-
 		for (entry in deferred) {
 			requeue(entry)
 		}
 	}
-
 	@JvmStatic
 	fun onPlayerTeleported() {
 		clear()
 	}
-
 	@JvmStatic
 	fun clear() {
 		synchronized(lock) {
@@ -157,16 +128,13 @@ object SectionLoadPreRenderer {
 			pendingKeys.clear()
 		}
 	}
-
 	@JvmStatic
 	fun pendingCount(): Int = synchronized(lock) { pending.size }
-
 	@JvmStatic
 	fun debugLine(): String =
 		"preRender on=${enabled} pending=${pendingCount()} queued=${queuedTotal.get()} " +
 			"submitted=${submittedTotal.get()} deferred=${deferredTotal.get()} " +
 			"skipped=${skippedTotal.get()} budget=${ChunkupConfig.preRenderBudgetPerFrame}"
-
 	private fun drainPending(): List<Entry> {
 		synchronized(lock) {
 			if (pending.isEmpty()) {
@@ -181,7 +149,6 @@ object SectionLoadPreRenderer {
 			return batch
 		}
 	}
-
 	private fun refreshPriorities() {
 		val player = Minecraft.getInstance().player ?: return
 		synchronized(lock) {
@@ -198,7 +165,6 @@ object SectionLoadPreRenderer {
 			}
 		}
 	}
-
 	private fun requeue(entry: Entry) {
 		val key = SectionKey(entry.sectionX, entry.sectionY, entry.sectionZ).asLong
 		synchronized(lock) {
@@ -211,7 +177,6 @@ object SectionLoadPreRenderer {
 			}
 		}
 	}
-
 	private fun distanceSqToSection(player: Player, sectionX: Int, sectionY: Int, sectionZ: Int): Double {
 		val originX = sectionX shl 4
 		val originZ = sectionZ shl 4

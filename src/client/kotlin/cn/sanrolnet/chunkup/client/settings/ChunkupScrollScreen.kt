@@ -4,9 +4,6 @@ import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.network.chat.Component
 
-/**
- * 带垂直滚动的设置屏基类，小分辨率下也能访问全部控件。
- */
 abstract class ChunkupScrollScreen(title: Component) : Screen(title) {
 	protected var scrollOffset = 0
 		private set
@@ -44,21 +41,21 @@ abstract class ChunkupScrollScreen(title: Component) : Screen(title) {
 		}
 	}
 
-	override fun mouseScrolled(mouseX: Double, mouseY: Double, delta: Double): Boolean {
+	override fun mouseScrolled(mouseX: Double, mouseY: Double, deltaX: Double, deltaY: Double): Boolean {
 		if (maxScroll <= 0) {
-			return super.mouseScrolled(mouseX, mouseY, delta)
+			return super.mouseScrolled(mouseX, mouseY, deltaX, deltaY)
 		}
-		val step = (delta * 16).toInt().coerceAtLeast(1)
+		val step = (deltaY * 16).toInt().coerceAtLeast(1)
 		scrollOffset = (scrollOffset - step).coerceIn(0, maxScroll)
 		rebuildScrollLayout()
 		return true
 	}
 
 	override fun render(guiGraphics: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float) {
-		renderBackground(guiGraphics)
+		renderBackground(guiGraphics, mouseX, mouseY, partialTick)
 		renderHeader(guiGraphics)
 		if (maxScroll > 0) {
-			guiGraphics.drawString(font, "滚动: $scrollOffset/$maxScroll", 8, height - 12, 0x808080, false)
+			guiGraphics.drawString(font, "滚动: $scrollOffset/$maxScroll", 8, height - 12, 0x808080)
 		}
 		super.render(guiGraphics, mouseX, mouseY, partialTick)
 	}
